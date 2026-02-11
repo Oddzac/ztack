@@ -15,6 +15,10 @@
                     <div class="dropdown-item" onclick="newProject()" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">New</div>
                     <div class="dropdown-item" onclick="importProject()" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">Open</div>
                     <div class="dropdown-item" onclick="exportProject()" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">Save</div>
+                    <div style="border-top: 1px solid #334155; margin: 4px 0;"></div>
+                    <div class="dropdown-item" onclick="loadTemplate('threeLayer')" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">Template: 3-Tier</div>
+                    <div class="dropdown-item" onclick="loadTemplate('microservices')" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">Template: Microservices</div>
+                    <div class="dropdown-item" onclick="loadTemplate('serverless')" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">Template: Serverless</div>
                 </div>
             </div>
             <div class="menu-item" style="position: relative;">
@@ -80,9 +84,7 @@
         </div>
     </div>
 
-    <script>
-        const LAYER_TYPES = {{ layer_types | tojson }};
-    </script>
+    <script src="{{ url_for('static', filename='js/data.js') }}"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
     <script src="{{ url_for('static', filename='js/diagram.js') }}"></script>
 </body>
