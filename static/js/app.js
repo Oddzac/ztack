@@ -401,6 +401,16 @@ function newProject() {
     }
 }
 
+function editProjectName() {
+    const currentName = project.name;
+    const newName = prompt('Enter project name:', currentName);
+    if (newName && newName.trim() !== '') {
+        project.name = newName.trim();
+        document.getElementById('project-title').textContent = project.name;
+        saveProject();
+    }
+}
+
 function sortLayers(criteria) {
     const layers = inSubstack && project.layers[selectedLayerIndex].substacks 
         ? project.layers[selectedLayerIndex].substacks 
