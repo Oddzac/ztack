@@ -145,5 +145,8 @@ function loadTemplate(templateName) {
         renderLayers();
         updateStats();
         selectLayer(0);
+        if (currentView === 'diagram') {
+            renderDiagram();
+        }
     }
 }
