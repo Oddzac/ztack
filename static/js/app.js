@@ -2,6 +2,9 @@ let project = null;
 let selectedLayerIndex = 0;
 let inSubstack = false;
 let selectedSubstackIndex = 0;
+let undoStack = [];
+let redoStack = [];
+const MAX_HISTORY = 50;
 
 function loadProject() {
     const saved = localStorage.getItem('ztack_project');
@@ -14,6 +17,54 @@ function loadProject() {
 
 function saveProject() {
     localStorage.setItem('ztack_project', JSON.stringify(project));
+}
+
+function saveState() {
+    undoStack.push(JSON.stringify(project));
+    if (undoStack.length > MAX_HISTORY) {
+        undoStack.shift();
+    }
+    redoStack = [];
+}
+
+function undo() {
+    if (undoStack.length === 0) return;
+    
+    redoStack.push(JSON.stringify(project));
+    const previousState = undoStack.pop();
+    project = JSON.parse(previousState);
+    
+    document.getElementById('project-title').textContent = project.name;
+    saveProject();
+    renderLayers();
+    updateStats();
+    if (selectedLayerIndex >= project.layers.length) {
+        selectedLayerIndex = Math.max(0, project.layers.length - 1);
+    }
+    selectLayer(selectedLayerIndex);
+    if (currentView === 'diagram') {
+        renderDiagram();
+    }
+}
+
+function redo() {
+    if (redoStack.length === 0) return;
+    
+    undoStack.push(JSON.stringify(project));
+    const nextState = redoStack.pop();
+    project = JSON.parse(nextState);
+    
+    document.getElementById('project-title').textContent = project.name;
+    saveProject();
+    renderLayers();
+    updateStats();
+    if (selectedLayerIndex >= project.layers.length) {
+        selectedLayerIndex = Math.max(0, project.layers.length - 1);
+    }
+    selectLayer(selectedLayerIndex);
+    if (currentView === 'diagram') {
+        renderDiagram();
+    }
 }
 
 function renderLayers() {
@@ -256,6 +307,8 @@ function toggleConnection(targetId, isConnected) {
         currentLayer.connections = [];
     }
     
+    saveState();
+    
     if (isConnected) {
         if (!currentLayer.connections.includes(targetId)) {
             currentLayer.connections.push(targetId);
@@ -275,6 +328,8 @@ function addSubstackLayer() {
     if (!parentLayer.substacks) {
         parentLayer.substacks = [];
     }
+    
+    saveState();
     
     const newSubstack = {
         id: Date.now(),
@@ -297,6 +352,8 @@ function addSubstackLayer() {
 }
 
 function updateLayerField(field, value) {
+    saveState();
+    
     const currentLayer = inSubstack 
         ? project.layers[selectedLayerIndex].substacks[selectedSubstackIndex]
         : project.layers[selectedLayerIndex];
@@ -319,6 +376,8 @@ function moveLayer(direction) {
     const newIndex = currentIndex + direction;
     if (newIndex < 0 || newIndex >= layers.length) return;
     
+    saveState();
+    
     [layers[currentIndex], layers[newIndex]] = 
     [layers[newIndex], layers[currentIndex]];
     
@@ -337,6 +396,8 @@ function deleteLayer() {
         alert('Cannot delete the last layer');
         return;
     }
+    
+    saveState();
     
     layers.splice(currentIndex, 1);
     saveProject();
@@ -405,6 +466,7 @@ function editProjectName() {
     const currentName = project.name;
     const newName = prompt('Enter project name:', currentName);
     if (newName && newName.trim() !== '') {
+        saveState();
         project.name = newName.trim();
         document.getElementById('project-title').textContent = project.name;
         saveProject();
@@ -441,6 +503,8 @@ function sortLayers(criteria) {
 }
 
 document.getElementById('add-layer-btn').addEventListener('click', () => {
+    saveState();
+    
     const newLayer = {
         id: Date.now(),
         name: 'New Layer',
@@ -470,6 +534,18 @@ document.getElementById('sort-select').addEventListener('change', (e) => {
 let isAnimating = false;
 
 document.addEventListener('keydown', (e) => {
+    // Undo/Redo shortcuts
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+        return;
+    }
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+        e.preventDefault();
+        redo();
+        return;
+    }
+    
     if (isAnimating) return;
     
     if (e.key === 'ArrowUp') {
