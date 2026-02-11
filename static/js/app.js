@@ -3,12 +3,17 @@ let selectedLayerIndex = 0;
 let inSubstack = false;
 let selectedSubstackIndex = 0;
 
-async function loadProject() {
-    const response = await fetch('/api/project');
-    project = await response.json();
+function loadProject() {
+    const saved = localStorage.getItem('ztack_project');
+    project = saved ? JSON.parse(saved) : SAMPLE_PROJECT;
+    document.getElementById('project-title').textContent = project.name;
     renderLayers();
     updateStats();
     selectLayer(0);
+}
+
+function saveProject() {
+    localStorage.setItem('ztack_project', JSON.stringify(project));
 }
 
 function renderLayers() {
@@ -259,6 +264,7 @@ function toggleConnection(targetId, isConnected) {
         currentLayer.connections = currentLayer.connections.filter(id => id !== targetId);
     }
     
+    saveProject();
     if (currentView === 'diagram') {
         renderDiagram();
     }
@@ -285,6 +291,7 @@ function addSubstackLayer() {
     };
     
     parentLayer.substacks.push(newSubstack);
+    saveProject();
     renderLayerDetails(parentLayer);
     renderLayers();
 }
@@ -294,6 +301,7 @@ function updateLayerField(field, value) {
         ? project.layers[selectedLayerIndex].substacks[selectedSubstackIndex]
         : project.layers[selectedLayerIndex];
     currentLayer[field] = value;
+    saveProject();
     renderLayers();
     const currentIndex = inSubstack ? selectedSubstackIndex : selectedLayerIndex;
     selectLayer(currentIndex);
@@ -314,6 +322,7 @@ function moveLayer(direction) {
     [layers[currentIndex], layers[newIndex]] = 
     [layers[newIndex], layers[currentIndex]];
     
+    saveProject();
     renderLayers();
     selectLayer(newIndex);
 }
@@ -330,6 +339,7 @@ function deleteLayer() {
     }
     
     layers.splice(currentIndex, 1);
+    saveProject();
     renderLayers();
     selectLayer(Math.max(0, currentIndex - 1));
     updateStats();
@@ -365,6 +375,7 @@ function importProject() {
             try {
                 project = JSON.parse(event.target.result);
                 document.getElementById('project-title').textContent = project.name;
+                saveProject();
                 renderLayers();
                 updateStats();
                 selectLayer(0);
@@ -384,6 +395,7 @@ function newProject() {
             layers: []
         };
         document.getElementById('project-title').textContent = project.name;
+        saveProject();
         renderLayers();
         updateStats();
     }
@@ -435,6 +447,7 @@ document.getElementById('add-layer-btn').addEventListener('click', () => {
     };
     
     project.layers.unshift(newLayer);
+    saveProject();
     renderLayers();
     selectLayer(0);
     updateStats();
