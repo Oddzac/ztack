@@ -585,6 +585,53 @@ document.getElementById('stack-container').addEventListener('wheel', (e) => {
 
 loadProject();
 
+// Toggle details panel
+function toggleDetailsPanel() {
+    const panel = document.getElementById('details-panel');
+    const toggle = document.getElementById('panel-toggle');
+    panel.classList.toggle('collapsed');
+    toggle.textContent = panel.classList.contains('collapsed') ? '▶' : '◀';
+}
+
+// Touch/swipe support for mobile
+let touchStartX = 0;
+let touchStartY = 0;
+let touchEndX = 0;
+let touchEndY = 0;
+
+function handleSwipe() {
+    const deltaX = touchEndX - touchStartX;
+    const deltaY = touchEndY - touchStartY;
+    
+    if (Math.abs(deltaX) < 50 && Math.abs(deltaY) < 50) return;
+    
+    if (Math.abs(deltaY) > Math.abs(deltaX)) {
+        const currentIndex = inSubstack ? selectedSubstackIndex : selectedLayerIndex;
+        if (deltaY < 0) {
+            selectLayer(currentIndex + 1);
+        } else {
+            selectLayer(currentIndex - 1);
+        }
+    } else {
+        if (deltaX < 0) {
+            enterSubstack();
+        } else {
+            exitSubstack();
+        }
+    }
+}
+
+document.getElementById('stack-container').addEventListener('touchstart', (e) => {
+    touchStartX = e.changedTouches[0].screenX;
+    touchStartY = e.changedTouches[0].screenY;
+}, { passive: true });
+
+document.getElementById('stack-container').addEventListener('touchend', (e) => {
+    touchEndX = e.changedTouches[0].screenX;
+    touchEndY = e.changedTouches[0].screenY;
+    handleSwipe();
+}, { passive: true });
+
 
 // File menu dropdown toggle
 document.addEventListener('DOMContentLoaded', () => {
@@ -593,7 +640,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (dropdown) {
             menuItem.addEventListener('click', (e) => {
                 e.stopPropagation();
-                // Close other dropdowns
                 document.querySelectorAll('.dropdown-menu').forEach(d => {
                     if (d !== dropdown) d.style.display = 'none';
                 });
@@ -605,4 +651,43 @@ document.addEventListener('DOMContentLoaded', () => {
     document.addEventListener('click', () => {
         document.querySelectorAll('.dropdown-menu').forEach(d => d.style.display = 'none');
     });
+    
+    // Touch support for diagram canvas
+    const canvas = document.getElementById('diagram-canvas');
+    let touchStartXDiagram = 0;
+    let touchStartYDiagram = 0;
+    
+    canvas.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 1) {
+            const touch = e.touches[0];
+            const rect = canvas.getBoundingClientRect();
+            touchStartXDiagram = touch.clientX - rect.left;
+            touchStartYDiagram = touch.clientY - rect.top;
+            handleCanvasMouseDown({ offsetX: touchStartXDiagram, offsetY: touchStartYDiagram });
+        }
+    }, { passive: true });
+    
+    canvas.addEventListener('touchmove', (e) => {
+        if (e.touches.length === 1) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            const rect = canvas.getBoundingClientRect();
+            const x = touch.clientX - rect.left;
+            const y = touch.clientY - rect.top;
+            handleCanvasMouseMove({ offsetX: x, offsetY: y });
+        }
+    }, { passive: false });
+    
+    canvas.addEventListener('touchend', (e) => {
+        handleCanvasMouseUp();
+        if (e.changedTouches.length === 1) {
+            const touch = e.changedTouches[0];
+            const rect = canvas.getBoundingClientRect();
+            const x = touch.clientX - rect.left;
+            const y = touch.clientY - rect.top;
+            if (Math.abs(x - touchStartXDiagram) < 10 && Math.abs(y - touchStartYDiagram) < 10) {
+                handleCanvasClick({ offsetX: x, offsetY: y });
+            }
+        }
+    }, { passive: true });
 });
