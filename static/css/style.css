@@ -64,6 +64,7 @@ body {
 .main-container {
     display: flex;
     height: calc(100vh - 110px);
+    overflow: hidden;
 }
 
 .left-frame {
@@ -206,9 +207,9 @@ body {
     border-left: 1px solid #334155;
     padding: 24px;
     overflow-y: auto;
-    overflow-x: visible;
     transition: transform 0.3s ease, width 0.3s ease;
     position: relative;
+    flex-shrink: 0;
 }
 
 .right-frame.collapsed {
@@ -219,19 +220,35 @@ body {
 }
 
 .panel-toggle {
-    position: absolute;
-    left: -40px;
-    top: 50%;
-    transform: translateY(-50%);
-    background: #0f172a;
-    border: 1px solid #334155;
-    border-right: none;
-    color: #94a3b8;
-    padding: 12px 8px;
+    position: fixed;
+    right: 500px;
+    top: 110px;
+    bottom: 0;
+    width: 12px;
+    background: #1e293b;
+    border-left: 2px solid #334155;
     cursor: pointer;
-    border-radius: 4px 0 0 4px;
-    transition: all 0.2s;
-    z-index: 10;
+    transition: all 0.3s;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #64748b;
+    font-size: 10px;
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    user-select: none;
+}
+
+.panel-toggle:hover {
+    background: #334155;
+    color: #e2e8f0;
+    width: 15px;
+}
+
+.right-frame.collapsed ~ .panel-toggle,
+.collapsed .panel-toggle {
+    right: 0;
 }
 
 .panel-toggle:hover {

@@ -591,6 +591,7 @@ function toggleDetailsPanel() {
     const toggle = document.getElementById('panel-toggle');
     panel.classList.toggle('collapsed');
     toggle.textContent = panel.classList.contains('collapsed') ? '▶' : '◀';
+    toggle.style.right = panel.classList.contains('collapsed') ? '0' : '500px';
 }
 
 // Touch/swipe support for mobile
