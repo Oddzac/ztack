@@ -206,6 +206,7 @@ body {
     border-left: 1px solid #334155;
     padding: 24px;
     overflow-y: auto;
+    overflow-x: visible;
     transition: transform 0.3s ease, width 0.3s ease;
     position: relative;
 }
