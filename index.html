@@ -15,9 +15,23 @@
                     <div class="dropdown-item" onclick="newProject()" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">New</div>
                     <div class="dropdown-item" onclick="importProject()" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">Open</div>
                     <div class="dropdown-item" onclick="exportProject()" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">Save</div>
+                    <div style="border-top: 1px solid #334155; margin: 4px 0;"></div>
+                    <div class="dropdown-item" onclick="loadTemplate('threeLayer')" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">Template: 3-Tier</div>
+                    <div class="dropdown-item" onclick="loadTemplate('microservices')" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">Template: Microservices</div>
+                    <div class="dropdown-item" onclick="loadTemplate('serverless')" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">Template: Serverless</div>
                 </div>
             </div>
-            <span class="menu-item">Edit</span>
+            <div class="menu-item" style="position: relative;">
+                <span>Edit</span>
+                <div class="dropdown-menu" style="display: none; position: absolute; top: 100%; left: 0; background: #0f172a; border: 1px solid #334155; border-radius: 4px; min-width: 150px; z-index: 1000;">
+                    <div class="dropdown-item" onclick="undo()" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">Undo (Ctrl+Z)</div>
+                    <div class="dropdown-item" onclick="redo()" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">Redo (Ctrl+Y)</div>
+                    <div style="border-top: 1px solid #334155; margin: 4px 0;"></div>
+                    <div class="dropdown-item" onclick="document.getElementById('add-layer-btn').click()" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">Add Layer</div>
+                    <div class="dropdown-item" onclick="deleteLayer()" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">Delete Layer</div>
+                    <div class="dropdown-item" onclick="addSubstackLayer()" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">Add Substack</div>
+                </div>
+            </div>
             <div class="menu-item" style="position: relative;">
                 <span>View</span>
                 <div class="dropdown-menu" style="display: none; position: absolute; top: 100%; left: 0; background: #0f172a; border: 1px solid #334155; border-radius: 4px; min-width: 150px; z-index: 1000;">
@@ -29,7 +43,10 @@
     </div>
 
     <div class="top-frame">
-        <h1 id="project-title">Sample Project</h1>
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <h1 id="project-title" style="cursor: pointer;" onclick="editProjectName()">Sample Project</h1>
+            <button onclick="editProjectName()" style="background: transparent; border: 1px solid #334155; color: #94a3b8; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s;" onmouseover="this.style.background='#1e293b'; this.style.color='#e2e8f0'" onmouseout="this.style.background='transparent'; this.style.color='#94a3b8'">✏️ Edit</button>
+        </div>
         <div class="stats">
             <div class="stat"><span class="stat-label">Total:</span> <span id="total-layers">0</span></div>
             <div class="stat"><span class="stat-label">Active:</span> <span id="active-layers">0</span></div>
@@ -67,7 +84,7 @@
         </div>
     </div>
 
-    <script src="static/js/config.js"></script>
+    <script src="static/js/data.js"></script>
     <script src="static/js/app.js"></script>
     <script src="static/js/diagram.js"></script>
 </body>
