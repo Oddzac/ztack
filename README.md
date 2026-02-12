@@ -3,9 +3,10 @@
 [![Live Demo](https://img.shields.io/badge/demo-live-brightgreen)](https://oddzac.github.io/ztack)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**ZTACK** is a modern, interactive web application for visualizing and organizing technology stacks. Built with vanilla JavaScript and HTML5 Canvas, it provides dual visualization modes: a high-level rotary carousel stack view and C4-style architecture diagrams.
+**ZTACK** is a modern, interactive web application for visualizing and organizing technology stacks. Built with vanilla JavaScript and HTML5 Canvas, it provides dual visualization modes: a high-level rotary carousel stack view and C4-style architecture diagrams with seamless real-time synchronization.
 
-![ZTACK Screenshot](screenshot.png)
+![ZTACK Stack](screenshot.png)
+![ZTACK Diagram](screenshot-1.png)
 
 ## 🚀 Live Demo
 
@@ -21,12 +22,15 @@ Visit the live application: [https://oddzac.github.io/ztack](https://oddzac.gith
   - Diamond-shaped layer cards with color-coded borders
   - Vertical substack visualization
   - Real-time layer selection and editing
+  - Floating action toolbar for layer operations
 
 - **Diagram View**: C4-style architecture diagrams
   - Component-specific shapes (rectangles, cylinders, hexagons, clouds)
   - Visual icons for quick identification
   - Drag-and-drop node positioning
-  - Connection arrows showing relationships
+  - Connection arrows with visual distinction (layer vs substack connections)
+  - Automatic collision detection and resolution
+  - Topological layout respecting all dependencies
   - Click-to-edit functionality
 
 #### 📊 Layer Management
@@ -37,13 +41,26 @@ Visit the live application: [https://oddzac.github.io/ztack](https://oddzac.gith
   - Technology stack
   - Description and responsibilities
   - Connections to other components
-- Sort layers by name, type, or status
+- Move layers up/down to reorder
+- Substack management with parent-child relationships
 
 #### 🔗 Relationship Mapping
-- Visual connection system between components
-- Multi-select checkbox interface for defining relationships
-- Automatic arrow rendering in diagram view
-- Bidirectional relationship support
+- **Context-Aware Connections**:
+  - Main layers connect to other main layers
+  - Substacks connect to main layers, other substacks, or siblings
+  - Automatic filtering prevents invalid connections
+  - Visual distinction between layer-level and substack-level connections
+
+- **Visual Connection Types**:
+  - Layer-to-layer: Thicker lines, wider dashes, darker color
+  - Substack connections: Thinner lines, tighter dashes, lighter color
+  - Parent-child containment: Dotted lines (separate from connections)
+
+- **Connection Search**:
+  - Real-time search filtering
+  - Case-insensitive partial matching
+  - Connection count badge (e.g., "3/12")
+  - Instant feedback as you type
 
 #### 💾 Project Management
 - **New**: Create fresh projects
@@ -51,13 +68,26 @@ Visit the live application: [https://oddzac.github.io/ztack](https://oddzac.gith
 - **Save**: Export projects as JSON
 - Auto-save to browser localStorage
 - Project statistics dashboard
+- Undo/Redo functionality for all changes
 
 #### 🎯 Professional Features
 - Color-coded component types (Frontend, Backend, API, Database, DevOps, Core)
 - C4 model compliance with proper visual notation
-- Responsive 2-column details panel
-- Real-time synchronization between views
+- **Tabbed Details Panel**:
+  - Properties Tab: Layer editing and operations
+  - Connections Tab: Search and relationship management
+  - Substacks Tab: Substack list and creation
+- Real-time synchronization between all views
+- Collision detection prevents node overlaps
+- Responsive layout adapts to panel width changes
 - Smooth animations and transitions
+
+#### ⌨️ Keyboard Navigation
+- ↑/↓: Navigate through layers
+- →: Enter substack
+- ←: Exit substack
+- Mouse wheel: Scroll through layers
+- Drag nodes in diagram view to reposition
 
 ## 🛠️ Technology Stack
 
@@ -66,6 +96,7 @@ Visit the live application: [https://oddzac.github.io/ztack](https://oddzac.gith
 - **Styling**: CSS3 with custom properties
 - **Data Format**: JSON
 - **Deployment**: GitHub Pages (static hosting)
+- **Storage**: Browser localStorage (client-side)
 
 ## 📦 Installation & Setup
 
@@ -103,10 +134,11 @@ npx http-server
 ### Creating Your First Stack
 
 1. **Add Layers**: Click "+ Add Layer" to create components
-2. **Edit Details**: Select a layer to edit its properties in the right panel
-3. **Define Connections**: Check boxes in the Connections section to link components
-4. **Add Substacks**: Click "+ Add Substack Layer" to create nested components
-5. **Navigate**: Use arrow keys or scroll to move through layers
+2. **Edit Details**: Select a layer to open the tabbed details panel
+3. **Properties Tab**: Edit layer name, type, status, technology, description
+4. **Connections Tab**: Search and select connections to other components
+5. **Substacks Tab**: Add nested components within a layer
+6. **Navigate**: Use arrow keys or scroll to move through layers
    - ↑/↓: Navigate main stack
    - →: Enter substack
    - ←: Exit substack
@@ -117,11 +149,19 @@ npx http-server
 - **View → Diagram View**: C4 architecture diagram
 - Both views stay synchronized in real-time
 
+### Layer Operations
+
+- **Move Up/Down**: Reorder layers using toolbar buttons
+- **Add Substack**: Create nested components (main layers only)
+- **Delete**: Remove layers or substacks
+- All operations available in floating toolbar or details panel
+
 ### Saving & Loading
 
 - **File → Save**: Download project as JSON
 - **File → Open**: Load existing project
 - **File → New**: Start fresh project
+- Auto-save to localStorage prevents data loss
 
 ## 🎯 Keyboard Shortcuts
 
@@ -130,22 +170,55 @@ npx http-server
 | ↑/↓ | Navigate layers |
 | ←/→ | Enter/exit substacks |
 | Mouse Wheel | Scroll through layers |
+| Drag (Diagram) | Reposition nodes |
 
 ## 🗺️ Roadmap
+
+### Phase 1: Core Architecture (✅ Complete)
+- [x] Dual visualization modes (Stack & Diagram)
+- [x] Layer and substack management
+- [x] Connection system with context awareness
+- [x] Tabbed details panel
+- [x] Connection search and filtering
+- [x] Collision detection in diagram layout
+- [x] Undo/redo functionality
+- [x] localStorage persistence
+
+### Phase 2: Enhanced Diagram Interactions (Planned)
+- [ ] Double-click empty space to create new layer
+- [ ] Right-click context menu (edit, delete, duplicate)
+- [ ] Drag from node to node to create connections
+- [ ] Connection labels (HTTP, gRPC, Event Bus, etc.)
+- [ ] Connection type indicators (sync/async, request/response)
+- [ ] Hover over connection to see details
+- [ ] Zoom in/out controls
+- [ ] Auto-layout button (organize nodes automatically)
+- [ ] Grid snap for precise positioning
+
+### Phase 3: Visual Enhancements (Planned)
+- [ ] Visual grouping boxes around substacks in diagram
+- [ ] Breadcrumb navigation (Main > Layer > Substack)
+- [ ] Mini-map for large architectures
+- [ ] Preview thumbnails of substacks in main view
+- [ ] Keyboard shortcut to jump to specific layer
+- [ ] Bulk operations (select multiple, move together)
 
 ### Phase 4: Export & Documentation (Planned)
 - [ ] Export diagrams to PNG/SVG
 - [ ] Generate markdown documentation
 - [ ] Export to PlantUML/Mermaid formats
 - [ ] PDF report generation
+- [ ] Version history/changelog tracking
 
 ### Phase 5: Enterprise Features (Planned)
-- [ ] Cost tracking per component
-- [ ] SLA/uptime requirements
+- [ ] Cost tracking per component (AWS/Azure pricing integration)
+- [ ] SLA/uptime requirements per layer
 - [ ] Security compliance tags (SOC2, HIPAA, GDPR)
 - [ ] Performance metrics (latency, throughput)
-- [ ] Scalability indicators
-- [ ] Data flow annotations
+- [ ] Scalability indicators (horizontal/vertical scaling)
+- [ ] Data flow annotations (PII, sensitive data paths)
+- [ ] Risk assessment (single points of failure)
+- [ ] Tech debt tracking
 
 ### Phase 6: Integration & Automation (Planned)
 - [ ] Import from Terraform/CloudFormation
@@ -153,34 +226,72 @@ npx http-server
 - [ ] Auto-detect tech stack from GitHub repos
 - [ ] CI/CD pipeline integration
 - [ ] Infrastructure-as-code sync
+- [ ] Dependency analysis and visualization
+- [ ] Security vulnerability scanning
+- [ ] Performance bottleneck identification
 
 ### Phase 7: Advanced Visualization (Planned)
 - [ ] Full C4 model levels (Context, Container, Component, Code)
 - [ ] Deployment view with physical infrastructure
 - [ ] Data flow diagrams
 - [ ] Sequence diagrams
-- [ ] Network topology view
+- [ ] Network topology view (security zones, VPCs, subnets)
+- [ ] Multiple diagram types per project
 
 ### Phase 8: Analysis & Insights (Planned)
-- [ ] Dependency analysis
-- [ ] Risk assessment (single points of failure)
+- [ ] Circular dependency detection and warnings
 - [ ] Cost optimization suggestions
-- [ ] Security vulnerability scanning
-- [ ] Performance bottleneck identification
-- [ ] Tech debt tracking
+- [ ] Architectural pattern recognition
+- [ ] Compliance validation
+- [ ] Performance analysis reports
+- [ ] Tech stack recommendations
 
-### Phase 9: Collaboration (Planned)
+### Phase 9: Collaboration & Sharing (Cloud-Ready) (Planned)
+- [ ] Cloud storage integration (AWS S3)
+- [ ] User authentication (AWS Cognito)
 - [ ] Team collaboration features
+- [ ] Real-time co-editing with WebSocket sync
 - [ ] Comments and annotations
-- [ ] Version history/changelog
-- [ ] Share links (view-only)
-- [ ] Real-time co-editing
+- [ ] Share links (view-only or edit access)
+- [ ] Access control and permissions (AWS IAM)
+- [ ] Audit logging and change tracking
+- [ ] Version history with rollback capability
+- [ ] Conflict resolution for concurrent edits
 
 ### Phase 10: Templates & Standards (Planned)
-- [ ] Pre-built architecture templates
+- [ ] Pre-built architecture templates (microservices, monolith, serverless)
 - [ ] Industry-specific templates (fintech, healthcare, e-commerce)
 - [ ] Company-specific component libraries
-- [ ] Compliance templates (PCI-DSS, HIPAA)
+- [ ] Compliance templates (PCI-DSS, HIPAA architectures)
+- [ ] Best practices and recommendations
+- [ ] Template marketplace for community contributions
+
+## 🏗️ Architecture
+
+### Design Principles
+
+ZTACK is built on the principle of **seamless reference data synchronization** across multiple visualization and editing contexts. The application maintains a single source of truth while providing multiple ways to view, interact with, and modify that data.
+
+**Key Principles:**
+1. **Single Source of Truth**: All data stored in unified project structure
+2. **Seamless Multi-View Synchronization**: Changes in one view immediately reflect in all others
+3. **Context-Aware UI**: UI adapts based on what's being edited (layer vs substack)
+4. **Hierarchical Data with Flat Connections**: Layers contain substacks; connections exist at both levels
+5. **Visual Distinction by Connection Type**: Different styling for layer vs substack connections
+6. **Layout Respects All Relationships**: Diagram layout considers all connections
+7. **Intuitive Information Architecture**: Details panel organized by importance and frequency of use
+8. **Searchability and Discoverability**: Connection search enables quick finding in large projects
+9. **Validation and Constraint Enforcement**: Prevents invalid operations gracefully
+10. **Responsive and Adaptive Design**: Panel width adjustable, responsive layouts
+
+### File Organization
+
+- **index.html**: Main application entry point
+- **static/js/app.js**: Core logic, state management, details panel
+- **static/js/diagram.js**: Canvas rendering, layout algorithm, diagram interactions
+- **static/js/data.js**: Data structures, constants, templates
+- **static/js/config.js**: Configuration constants
+- **static/css/style.css**: All styling and responsive design
 
 ## 🤝 Contributing
 
