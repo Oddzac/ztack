@@ -120,7 +120,10 @@ function renderLayers() {
         const hasSubstacks = !inSubstack && layer.substacks && layer.substacks.length > 0;
         const substackPreview = hasSubstacks ? `
             <span style="margin-left: 12px; opacity: 0.7; font-size: 14px;">› 
-                <span style="font-size: 12px; background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 3px;">(${layer.substacks.length})</span>
+                <span style="font-size: 12px; background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 3px; cursor: pointer; transition: background 0.2s;" 
+                      onmouseover="this.style.background='rgba(255,255,255,0.2)'" 
+                      onmouseout="this.style.background='rgba(255,255,255,0.1)'"
+                      onclick="event.stopPropagation(); enterSubstack();">(${layer.substacks.length})</span>
             </span>
         ` : '';
         label.innerHTML = `
@@ -664,6 +667,11 @@ document.getElementById('stack-container').addEventListener('touchend', (e) => {
 
 // File menu dropdown toggle
 document.addEventListener('DOMContentLoaded', () => {
+    // Update navigation instructions for mobile
+    if ('ontouchstart' in window) {
+        document.getElementById('nav-instructions').textContent = 'Swipe Up/Down • Swipe Left/Right for Substacks';
+    }
+    
     document.querySelectorAll('.menu-item').forEach(menuItem => {
         const dropdown = menuItem.querySelector('.dropdown-menu');
         if (dropdown) {

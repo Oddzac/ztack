@@ -60,16 +60,21 @@
                 <!-- Layers will be dynamically added here -->
             </div>
             <div class="controls">
-                <div style="display: flex; gap: 8px; align-items: center; justify-content: center; margin-bottom: 12px;">
-                    <label style="font-size: 12px; color: #94a3b8;">Sort by:</label>
-                    <select id="sort-select" style="background: #0f172a; border: 1px solid #334155; color: #e2e8f0; padding: 6px 12px; border-radius: 4px; font-size: 12px;">
-                        <option value="manual">Manual Order</option>
-                        <option value="name">Name (A-Z)</option>
-                        <option value="type">Type</option>
-                        <option value="status">Status</option>
-                    </select>
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 0 24px;">
+                    <div style="font-size: 11px; color: #64748b; line-height: 1.4;">
+                        <span id="nav-instructions">↑↓ Navigate • → Enter Substack • ← Back • Scroll Wheel</span>
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <label style="font-size: 12px; color: #94a3b8;">Sort by:</label>
+                        <select id="sort-select" style="background: #0f172a; border: 1px solid #334155; color: #e2e8f0; padding: 6px 12px; border-radius: 4px; font-size: 12px;">
+                            <option value="manual">Manual Order</option>
+                            <option value="name">Name (A-Z)</option>
+                            <option value="type">Type</option>
+                            <option value="status">Status</option>
+                        </select>
+                    </div>
+                    <button id="add-layer-btn">+ Add Layer</button>
                 </div>
-                <button id="add-layer-btn">+ Add Layer</button>
             </div>
         </div>
 
