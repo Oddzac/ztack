@@ -119,16 +119,18 @@ function renderLayers() {
         }
         const hasSubstacks = !inSubstack && layer.substacks && layer.substacks.length > 0;
         const substackPreview = hasSubstacks ? `
-            <span style="margin-left: 12px; opacity: 0.7; font-size: 14px;">› 
-                <span style="font-size: 12px; background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 3px; cursor: pointer; transition: background 0.2s;" 
-                      onmouseover="this.style.background='rgba(255,255,255,0.2)'" 
-                      onmouseout="this.style.background='rgba(255,255,255,0.1)'"
-                      onclick="event.stopPropagation(); enterSubstack();">(${layer.substacks.length})</span>
-            </span>
+            <span style="font-size: 12px; background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 3px; cursor: pointer; transition: background 0.2s;" 
+                  onmouseover="this.style.background='rgba(255,255,255,0.2)'" 
+                  onmouseout="this.style.background='rgba(255,255,255,0.1)'"
+                  onclick="event.stopPropagation(); enterSubstack();">(${layer.substacks.length})</span>
         ` : '';
+        const displayName = layer.name.length > 20 ? layer.name : `<span style="white-space: nowrap;">${layer.name}</span>`;
         label.innerHTML = `
-            <div class="label-name">${layer.name}${substackPreview}</div>
-            <div class="label-type">${layer.type}</div>
+            <div class="label-name" style="max-width: 300px; word-wrap: break-word; white-space: normal; line-height: 1.3;">${displayName}</div>
+            <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
+                <div class="label-type">${layer.type}</div>
+                ${substackPreview}
+            </div>
         `;
         
         card.appendChild(label);
@@ -313,7 +315,7 @@ function renderLayerDetails(layer) {
         </div>
         
         <div class="action-buttons">
-            <button class="btn btn-danger" onclick="deleteLayer()">Delete Layer</button>
+            <button class="btn btn-danger" onclick="deleteLayer()">Delete ${inSubstack ? 'Substack Component' : 'Layer'}</button>
         </div>
     `;
 }
@@ -362,8 +364,9 @@ function addSubstackLayer() {
     
     saveState();
     
+    const substackIndex = parentLayer.substacks.length + 1;
     const newSubstack = {
-        id: Date.now(),
+        id: `${parentLayer.id}_${substackIndex}`,
         name: 'New Substack',
         type: parentLayer.type,
         status: 'Active',
@@ -423,8 +426,14 @@ function deleteLayer() {
         : project.layers;
     const currentIndex = inSubstack ? selectedSubstackIndex : selectedLayerIndex;
     
-    if (layers.length === 1) {
+    // Only prevent deletion if it's a main layer and it's the last one
+    if (!inSubstack && layers.length === 1) {
         alert('Cannot delete the last layer');
+        return;
+    }
+    
+    const itemType = inSubstack ? 'substack component' : 'layer';
+    if (!confirm(`Delete this ${itemType}?`)) {
         return;
     }
     
@@ -433,8 +442,18 @@ function deleteLayer() {
     layers.splice(currentIndex, 1);
     saveProject();
     renderLayers();
-    selectLayer(Math.max(0, currentIndex - 1));
+    
+    if (layers.length > 0) {
+        selectLayer(Math.max(0, currentIndex - 1));
+    } else if (inSubstack) {
+        // If all substacks deleted, exit to parent
+        exitSubstack();
+    }
+    
     updateStats();
+    if (currentView === 'diagram') {
+        renderDiagram();
+    }
 }
 
 function updateStats() {
@@ -612,7 +631,7 @@ document.getElementById('stack-container').addEventListener('wheel', (e) => {
             selectLayer(currentIndex - 1);
         }
     }, 50);
-});
+}, { passive: false });
 
 loadProject();
 
@@ -623,6 +642,13 @@ function toggleDetailsPanel() {
     panel.classList.toggle('collapsed');
     toggle.textContent = panel.classList.contains('collapsed') ? '▶' : '◀';
     toggle.style.right = panel.classList.contains('collapsed') ? '0' : '500px';
+    
+    // Resize canvas when panel toggles
+    setTimeout(() => {
+        if (currentView === 'diagram' && canvas) {
+            resizeCanvas();
+        }
+    }, 300);
 }
 
 // Touch/swipe support for mobile
