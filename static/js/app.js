@@ -167,9 +167,9 @@ function selectLayer(index, skipDetailsUpdate = false) {
             const zOffset = (layers.length - i - 1) * 20;
             
             if (i !== index) {
-                card.style.transform = `translateZ(${zOffset}px) translateY(${yOffset}px)`;
+                card.style.transform = `translateZ(${zOffset}px) translateY(${yOffset}px) translateX(150px)`;
             } else {
-                card.style.transform = `translateZ(${zOffset}px) translateY(${yOffset}px) scale(1.5)`;
+                card.style.transform = `translateZ(${zOffset}px) translateY(${yOffset}px) translateX(150px) scale(1.5)`;
             }
         });
     } else {
