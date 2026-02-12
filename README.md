@@ -1,4 +1,5 @@
-# ZTACK - Tech Stack Visualizer and Organizer
+# ZTACK
+## Tech Stack Visualizer and Organizer
 
 [![Live Demo](https://img.shields.io/badge/demo-live-brightgreen)](https://oddzac.github.io/ztack)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
