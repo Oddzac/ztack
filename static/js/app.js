@@ -156,7 +156,7 @@ function selectLayer(index, skipDetailsUpdate = false) {
     if (inSubstack) {
         // Vertical stack layout for substacks
         const CARD_SPACING = 60;
-        document.querySelectorAll('.layer-card').forEach((card, i) => {
+        document.querySelectorAll('.layer-card:not(.parent-layer)').forEach((card, i) => {
             card.classList.toggle('selected', i === index);
             const label = card.querySelector('.layer-label');
             if (label) {

@@ -158,6 +158,15 @@ body {
     opacity: 0;
 }
 
+.layer-card.parent-layer {
+    cursor: pointer;
+    pointer-events: all;
+}
+
+.layer-card.parent-layer:hover {
+    opacity: 0.8 !important;
+}
+
 .layer-content {
     text-align: center;
     pointer-events: none;
