@@ -136,41 +136,94 @@ function recalculateLayout() {
     const baseX = 200;
     const baseY = 200;
     const levelSpacing = 700;
-    const rowSpacing = 400;
-    const maxPerLevel = 2;
+    const nodeWidth = 200;
+    const nodeHeight = 120;
+    const minVerticalSpacing = 200; // Minimum space between node centers
+    const minHorizontalSpacing = 250; // Minimum space between nodes horizontally
+    
+    // Track occupied regions for collision detection
+    const occupiedRegions = [];
+    
+    function checkCollision(x, y, width = nodeWidth, height = nodeHeight) {
+        const padding = 20;
+        const rect = {
+            left: x - width / 2 - padding,
+            right: x + width / 2 + padding,
+            top: y - height / 2 - padding,
+            bottom: y + height / 2 + padding
+        };
+        
+        return occupiedRegions.some(occupied => {
+            return !(rect.right < occupied.left || 
+                     rect.left > occupied.right || 
+                     rect.bottom < occupied.top || 
+                     rect.top > occupied.bottom);
+        });
+    }
+    
+    function findNonCollidingPosition(baseX, baseY, width = nodeWidth, height = nodeHeight) {
+        let x = baseX;
+        let y = baseY;
+        let attempts = 0;
+        const maxAttempts = 50;
+        
+        while (checkCollision(x, y, width, height) && attempts < maxAttempts) {
+            // Try shifting down first (preferred for visual flow)
+            y += minVerticalSpacing;
+            attempts++;
+            
+            // If we've shifted too far down, try shifting right
+            if (attempts > 10) {
+                x += minHorizontalSpacing;
+                y = baseY;
+                attempts = 0;
+            }
+        }
+        
+        return { x, y };
+    }
+    
+    function recordOccupiedRegion(x, y, width = nodeWidth, height = nodeHeight) {
+        const padding = 20;
+        occupiedRegions.push({
+            left: x - width / 2 - padding,
+            right: x + width / 2 + padding,
+            top: y - height / 2 - padding,
+            bottom: y + height / 2 + padding
+        });
+    }
     
     // Position layers level by level (left to right)
     Object.keys(layersByLevel).sort((a, b) => a - b).forEach(level => {
         const layersInLevel = layersByLevel[level];
-        let row = 0;
-        let col = 0;
         let currentY = baseY;
-        let currentRowMaxHeight = 0;
         
         layersInLevel.forEach((layer, idx) => {
             const hasSubstacks = layer.substacks && layer.substacks.length > 0;
             const substackCount = hasSubstacks ? layer.substacks.length : 0;
             const layerHeight = hasSubstacks ? substackCount * 180 : 120;
             
-            nodePositions[layer.id] = {
+            const basePosition = {
                 x: baseX + (parseInt(level) * levelSpacing),
-                y: currentY + (row * rowSpacing),
-                level: parseInt(level),
-                row: row
+                y: currentY
             };
             
-            console.log(`Layer "${layer.name}" | Level: ${level}, Row: ${row} | Substacks: ${substackCount} | Position: (${nodePositions[layer.id].x}, ${nodePositions[layer.id].y})`);
+            // Check for collisions and adjust if needed
+            const finalPosition = findNonCollidingPosition(basePosition.x, basePosition.y, nodeWidth, layerHeight);
             
-            currentRowMaxHeight = Math.max(currentRowMaxHeight, layerHeight);
+            nodePositions[layer.id] = {
+                x: finalPosition.x,
+                y: finalPosition.y,
+                level: parseInt(level),
+                row: idx
+            };
             
-            col++;
-            if (col >= maxPerLevel) {
-                const extraSpacing = Math.max(0, currentRowMaxHeight - 200);
-                currentY += rowSpacing + extraSpacing;
-                col = 0;
-                row++;
-                currentRowMaxHeight = 0;
-            }
+            recordOccupiedRegion(finalPosition.x, finalPosition.y, nodeWidth, layerHeight);
+            
+            console.log(`Layer "${layer.name}" | Level: ${level}, Row: ${idx} | Substacks: ${substackCount} | Position: (${finalPosition.x}, ${finalPosition.y})`);
+            
+            // Move baseline for next layer in this level
+            currentY = finalPosition.y + layerHeight + minVerticalSpacing;
         });
     });
     
@@ -199,9 +252,11 @@ function calculateLayerLevels() {
     const visited = new Set();
     const inProgress = new Set();
     
-    // Build adjacency list from connections
+    // Build adjacency list from connections (both layer and substack)
     const graph = {};
-    project.layers.forEach(layer => {
+    const allLayers = getAllLayers();
+    
+    allLayers.forEach(layer => {
         graph[layer.id] = layer.connections || [];
     });
     
@@ -226,18 +281,18 @@ function calculateLayerLevels() {
     
     // Start from layers with no incoming connections (roots)
     const hasIncoming = new Set();
-    project.layers.forEach(layer => {
+    allLayers.forEach(layer => {
         (layer.connections || []).forEach(targetId => hasIncoming.add(targetId));
     });
     
-    project.layers.forEach(layer => {
+    allLayers.forEach(layer => {
         if (!hasIncoming.has(layer.id)) {
             dfs(layer.id, 0);
         }
     });
     
     // Handle disconnected layers
-    project.layers.forEach(layer => {
+    allLayers.forEach(layer => {
         if (levels[layer.id] === undefined) {
             levels[layer.id] = 0;
         }
@@ -298,11 +353,16 @@ function renderDiagram() {
             layer.connections.forEach(targetId => {
                 const target = allLayers.find(l => l.id === targetId);
                 if (target && nodePositions[layer.id] && nodePositions[targetId]) {
+                    // Determine connection style based on layer type
+                    const isSubstackConnection = typeof layer.id === 'string' && layer.id.includes('_');
+                    const isTargetSubstack = typeof targetId === 'string' && targetId.includes('_');
+                    
                     drawConnection(
                         nodePositions[layer.id].x,
                         nodePositions[layer.id].y,
                         nodePositions[targetId].x,
-                        nodePositions[targetId].y
+                        nodePositions[targetId].y,
+                        isSubstackConnection || isTargetSubstack
                     );
                 }
             });
@@ -466,10 +526,10 @@ function drawCloud(x, y, width, height, isSelected, color) {
     ctx.stroke();
 }
 
-function drawConnection(x1, y1, x2, y2) {
-    ctx.strokeStyle = '#475569';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([5, 5]);
+function drawConnection(x1, y1, x2, y2, isSubstackConnection = false) {
+    ctx.strokeStyle = isSubstackConnection ? '#94a3b8' : '#475569';
+    ctx.lineWidth = isSubstackConnection ? 1.5 : 2;
+    ctx.setLineDash(isSubstackConnection ? [3, 3] : [5, 5]);
     
     // Draw arrow
     ctx.beginPath();

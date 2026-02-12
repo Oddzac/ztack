@@ -232,90 +232,151 @@ function exitSubstack() {
 
 function renderLayerDetails(layer) {
     const detailsDiv = document.getElementById('layer-details');
+    const availableTargets = getAvailableConnectionTargets(layer);
+    
+    // Generate unique ID for this layer's search input
+    const searchInputId = `conn-search-${layer.id}`;
+    
+    const substackList = layer.substacks && layer.substacks.length > 0 ? `
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+            ${layer.substacks.map((sub, idx) => `
+                <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px; background: #1e293b; border: 1px solid #334155; border-radius: 4px; cursor: pointer;" onclick="enterSubstack(); selectLayer(${idx})">
+                    <div style="flex: 1; min-width: 0;">
+                        <div style="font-size: 13px; font-weight: 500; color: #e2e8f0;">${sub.name}</div>
+                        <div style="font-size: 11px; color: #64748b; margin-top: 2px;">${sub.type} • ${sub.status}</div>
+                    </div>
+                    <div style="font-size: 12px; color: #94a3b8; margin-left: 8px;">→</div>
+                </div>
+            `).join('')}
+        </div>
+    ` : `
+        <div style="padding: 16px; text-align: center; color: #64748b; font-size: 13px;">
+            No substacks yet. Click the button below to add one.
+        </div>
+    `;
+    
     const substackSection = !inSubstack ? `
-        <div class="detail-section">
+        <div class="detail-section" style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 0;">
             <div class="detail-label">Substacks (${layer.substacks ? layer.substacks.length : 0})</div>
+            ${substackList}
             <button class="btn btn-secondary" style="width: 100%; margin-top: 8px;" onclick="addSubstackLayer()">+ Add Substack Layer</button>
         </div>
     ` : '';
     
-    const allLayers = getAllLayers();
-    const connectionsHtml = `
-        <div class="detail-section">
-            <div class="detail-label">Connections</div>
-            <div style="max-height: 200px; overflow-y: auto; border: 1px solid #334155; border-radius: 4px; padding: 8px; margin-top: 8px;">
-                ${allLayers.filter(l => l.id !== layer.id).map(l => `
-                    <label style="display: flex; align-items: center; gap: 8px; padding: 4px; cursor: pointer;">
-                        <input type="checkbox" ${(layer.connections || []).includes(l.id) ? 'checked' : ''} 
-                               onchange="toggleConnection(${l.id}, this.checked)">
-                        <span style="font-size: 13px;">${l.name}</span>
-                    </label>
-                `).join('')}
-            </div>
-        </div>
-    `;
-    
     detailsDiv.innerHTML = `
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
-            <div>
-                <div class="detail-section">
-                    <div class="detail-label">Layer Name</div>
-                    <input type="text" class="detail-input" value="${layer.name}" 
-                           onchange="updateLayerField('name', this.value)">
-                </div>
-                
-                <div class="detail-section">
-                    <div class="detail-label">Type</div>
-                    <select class="detail-select" onchange="updateLayerField('type', this.value)">
-                        ${Object.keys(LAYER_TYPES).map(type => 
-                            `<option value="${type}" ${layer.type === type ? 'selected' : ''}>${type}</option>`
-                        ).join('')}
-                    </select>
-                </div>
-                
-                <div class="detail-section">
-                    <div class="detail-label">Status</div>
-                    <select class="detail-select" onchange="updateLayerField('status', this.value)">
-                        <option value="Active" ${layer.status === 'Active' ? 'selected' : ''}>Active</option>
-                        <option value="Inactive" ${layer.status === 'Inactive' ? 'selected' : ''}>Inactive</option>
-                        <option value="Deprecated" ${layer.status === 'Deprecated' ? 'selected' : ''}>Deprecated</option>
-                    </select>
-                </div>
-                
-                <div class="detail-section">
-                    <div class="detail-label">Technology</div>
-                    <input type="text" class="detail-input" value="${layer.technology || ''}" 
-                           placeholder="e.g., React, Node.js, PostgreSQL"
-                           onchange="updateLayerField('technology', this.value)">
-                </div>
-                
-                <div class="detail-section">
-                    <div class="detail-label">Description</div>
-                    <textarea class="detail-textarea" 
-                              onchange="updateLayerField('description', this.value)">${layer.description || ''}</textarea>
-                </div>
-                
-                <div class="detail-section">
-                    <div class="detail-label">Responsibilities</div>
-                    <textarea class="detail-textarea" style="min-height: 60px;"
-                              placeholder="What does this component do?"
-                              onchange="updateLayerField('responsibilities', this.value)">${layer.responsibilities || ''}</textarea>
-                </div>
+        <div style="display: flex; flex-direction: column; height: 100%; gap: 0;">
+            <!-- Tab Navigation -->
+            <div class="detail-tabs">
+                <button class="detail-tab active" data-tab="properties" onclick="switchDetailTab('properties')">
+                    Properties
+                </button>
+                <button class="detail-tab" data-tab="connections" onclick="switchDetailTab('connections')">
+                    Connections <span style="font-size: 10px; margin-left: 4px; opacity: 0.7;">${(layer.connections || []).length}</span>
+                </button>
+                ${!inSubstack ? `
+                    <button class="detail-tab" data-tab="substacks" onclick="switchDetailTab('substacks')">
+                        Substacks <span style="font-size: 10px; margin-left: 4px; opacity: 0.7;">${layer.substacks ? layer.substacks.length : 0}</span>
+                    </button>
+                ` : ''}
             </div>
             
-            <div>
-                ${connectionsHtml}
-                ${substackSection}
+            <!-- Tab Content -->
+            <div style="flex: 1; display: flex; flex-direction: column; min-height: 0;">
+                <!-- Properties Tab -->
+                <div class="detail-tab-content active" data-tab="properties" style="display: flex; flex-direction: column; gap: 16px; padding: 16px 16px 16px 0; overflow-y: auto; padding-right: 16px;">
+                    <div class="detail-section" style="margin-bottom: 0;">
+                        <div class="detail-label">Layer Name</div>
+                        <input type="text" class="detail-input" value="${layer.name}" 
+                               onchange="updateLayerField('name', this.value)">
+                    </div>
+                    
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                        <div class="detail-section" style="margin-bottom: 0;">
+                            <div class="detail-label">Type</div>
+                            <select class="detail-select" onchange="updateLayerField('type', this.value)">
+                                ${Object.keys(LAYER_TYPES).map(type => 
+                                    `<option value="${type}" ${layer.type === type ? 'selected' : ''}>${type}</option>`
+                                ).join('')}
+                            </select>
+                        </div>
+                        
+                        <div class="detail-section" style="margin-bottom: 0;">
+                            <div class="detail-label">Status</div>
+                            <select class="detail-select" onchange="updateLayerField('status', this.value)">
+                                <option value="Active" ${layer.status === 'Active' ? 'selected' : ''}>Active</option>
+                                <option value="Inactive" ${layer.status === 'Inactive' ? 'selected' : ''}>Inactive</option>
+                                <option value="Deprecated" ${layer.status === 'Deprecated' ? 'selected' : ''}>Deprecated</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="detail-section" style="margin-bottom: 0;">
+                        <div class="detail-label">Technology</div>
+                        <input type="text" class="detail-input" value="${layer.technology || ''}" 
+                               placeholder="e.g., React, Node.js, PostgreSQL"
+                               onchange="updateLayerField('technology', this.value)">
+                    </div>
+                    
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                        <div class="detail-section" style="margin-bottom: 0;">
+                            <div class="detail-label">Description</div>
+                            <textarea class="detail-textarea" style="min-height: 100px;"
+                                      onchange="updateLayerField('description', this.value)">${layer.description || ''}</textarea>
+                        </div>
+                        
+                        <div class="detail-section" style="margin-bottom: 0;">
+                            <div class="detail-label">Responsibilities</div>
+                            <textarea class="detail-textarea" style="min-height: 100px;"
+                                      placeholder="What does this component do?"
+                                      onchange="updateLayerField('responsibilities', this.value)">${layer.responsibilities || ''}</textarea>
+                        </div>
+                    </div>
+                    
+                    <!-- Properties Tab Actions -->
+                    <div style="display: flex; gap: 8px; margin-top: 8px;">
+                        <button class="btn btn-secondary" style="flex: 1;" onclick="moveLayer(-1)" title="Move layer up">↑ Move Up</button>
+                        <button class="btn btn-secondary" style="flex: 1;" onclick="moveLayer(1)" title="Move layer down">↓ Move Down</button>
+                    </div>
+                    
+                    <button class="btn btn-danger" style="width: 100%;" onclick="deleteLayer()">Delete ${inSubstack ? 'Substack Component' : 'Layer'}</button>
+                </div>
+                
+                <!-- Connections Tab -->
+                <div class="detail-tab-content" data-tab="connections" style="display: none; flex-direction: column; gap: 16px; padding: 16px 0; min-height: 0;">
+                    <div class="detail-section" style="display: flex; flex-direction: column; flex: 1; min-height: 0; margin-bottom: 0;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; flex-shrink: 0;">
+                            <div class="detail-label" style="margin: 0;">Connections ${inSubstack ? '(Substack)' : '(Layer)'}</div>
+                            <span style="font-size: 11px; color: #64748b;">${(layer.connections || []).length}/${availableTargets.length}</span>
+                        </div>
+                        <div style="font-size: 11px; color: #64748b; margin-bottom: 8px; flex-shrink: 0;">
+                            ${inSubstack ? 'Connections from this substack component' : 'Connections from this layer'}
+                        </div>
+                        <input type="text" id="${searchInputId}" class="detail-input" placeholder="Search connections..." 
+                               style="margin-bottom: 8px; font-size: 12px; flex-shrink: 0;" 
+                               onkeyup="filterConnections('${searchInputId}', '${layer.id}')">
+                        <div class="connections-list" style="flex: 1; overflow-y: auto; border: 1px solid #334155; border-radius: 4px; padding: 8px; min-height: 0;">
+                            ${availableTargets.length === 0 ? '<span style="color: #64748b; font-size: 12px;">No available targets</span>' : ''}
+                            ${availableTargets.map(target => `
+                                <label class="connection-item" data-search="${(target.name + target.type).toLowerCase()}" style="display: flex; align-items: center; gap: 8px; padding: 8px 6px; cursor: pointer; border-radius: 3px; transition: background 0.2s; margin-bottom: 4px;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">
+                                    <input type="checkbox" ${(layer.connections || []).includes(target.id) ? 'checked' : ''} 
+                                           onchange="toggleConnection('${target.id}', this.checked)">
+                                    <div style="flex: 1; min-width: 0;">
+                                        <div style="font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${target.name}</div>
+                                        <div style="font-size: 10px; color: #64748b;">${target.type}${target.isSubstack ? ' • substack' : ''}</div>
+                                    </div>
+                                </label>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Substacks Tab -->
+                ${!inSubstack ? `
+                    <div class="detail-tab-content" data-tab="substacks" style="display: none; flex-direction: column; gap: 16px; padding: 16px 16px 16px 0; overflow-y: auto; padding-right: 16px;">
+                        ${substackSection}
+                    </div>
+                ` : ''}
             </div>
-        </div>
-        
-        <div class="action-buttons" style="margin-top: 16px;">
-            <button class="btn btn-secondary" onclick="moveLayer(-1)">↑ Move Up</button>
-            <button class="btn btn-secondary" onclick="moveLayer(1)">↓ Move Down</button>
-        </div>
-        
-        <div class="action-buttons">
-            <button class="btn btn-danger" onclick="deleteLayer()">Delete ${inSubstack ? 'Substack Component' : 'Layer'}</button>
         </div>
     `;
 }
@@ -329,6 +390,110 @@ function getAllLayers() {
         }
     });
     return layers;
+}
+
+function getAvailableConnectionTargets(layer) {
+    const targets = [];
+    
+    if (inSubstack) {
+        // When editing a substack, show:
+        // 1. All main layers (except parent)
+        // 2. Substacks from other parents
+        // 3. Sibling substacks
+        const parentLayer = project.layers[selectedLayerIndex];
+        
+        project.layers.forEach(mainLayer => {
+            if (mainLayer.id !== parentLayer.id) {
+                targets.push({
+                    id: mainLayer.id,
+                    name: mainLayer.name,
+                    type: mainLayer.type,
+                    isSubstack: false
+                });
+            }
+            
+            // Add substacks from other parents
+            if (mainLayer.substacks && mainLayer.substacks.length > 0) {
+                mainLayer.substacks.forEach(sub => {
+                    if (sub.id !== layer.id) { // Don't connect to self
+                        targets.push({
+                            id: sub.id,
+                            name: `${sub.name} (${mainLayer.name})`,
+                            type: sub.type,
+                            isSubstack: true
+                        });
+                    }
+                });
+            }
+        });
+        
+        // Add sibling substacks
+        if (parentLayer.substacks) {
+            parentLayer.substacks.forEach(sub => {
+                if (sub.id !== layer.id) {
+                    targets.push({
+                        id: sub.id,
+                        name: `${sub.name} (sibling)`,
+                        type: sub.type,
+                        isSubstack: true
+                    });
+                }
+            });
+        }
+    } else {
+        // When editing a main layer, show all other main layers
+        project.layers.forEach(mainLayer => {
+            if (mainLayer.id !== layer.id) {
+                targets.push({
+                    id: mainLayer.id,
+                    name: mainLayer.name,
+                    type: mainLayer.type,
+                    isSubstack: false
+                });
+            }
+        });
+    }
+    
+    return targets;
+}
+
+function filterConnections(searchInputId, layerId) {
+    const searchInput = document.getElementById(searchInputId);
+    const searchTerm = searchInput.value.toLowerCase();
+    const connectionItems = document.querySelectorAll('.connection-item');
+    
+    connectionItems.forEach(item => {
+        const searchText = item.getAttribute('data-search');
+        if (searchText.includes(searchTerm)) {
+            item.style.display = 'flex';
+        } else {
+            item.style.display = 'none';
+        }
+    });
+}
+
+function switchDetailTab(tabName) {
+    // Hide all tabs
+    document.querySelectorAll('.detail-tab-content').forEach(tab => {
+        tab.style.display = 'none';
+    });
+    
+    // Remove active class from all tab buttons
+    document.querySelectorAll('.detail-tab').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    
+    // Show selected tab
+    const selectedTab = document.querySelector(`.detail-tab-content[data-tab="${tabName}"]`);
+    if (selectedTab) {
+        selectedTab.style.display = 'flex';
+    }
+    
+    // Add active class to clicked button
+    const selectedBtn = document.querySelector(`.detail-tab[data-tab="${tabName}"]`);
+    if (selectedBtn) {
+        selectedBtn.classList.add('active');
+    }
 }
 
 function toggleConnection(targetId, isConnected) {
