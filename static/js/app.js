@@ -76,6 +76,29 @@ function renderLayers() {
         : project.layers;
     const currentIndex = inSubstack ? selectedSubstackIndex : selectedLayerIndex;
     
+    // If in substack, render parent layer on the left
+    if (inSubstack) {
+        const parentLayer = project.layers[selectedLayerIndex];
+        const parentCard = document.createElement('div');
+        parentCard.className = 'layer-card parent-layer';
+        parentCard.style.color = LAYER_TYPES[parentLayer.type];
+        parentCard.style.transform = 'translateX(-300px) scale(0.8)';
+        parentCard.style.opacity = '0.6';
+        parentCard.style.zIndex = '1';
+        
+        const parentLabel = document.createElement('div');
+        parentLabel.className = 'layer-label';
+        parentLabel.style.left = '250px';
+        parentLabel.style.opacity = '1';
+        parentLabel.innerHTML = `
+            <div class="label-name" style="font-size: 18px;">${parentLayer.name}</div>
+            <div class="label-type" style="font-size: 11px;">Parent Layer</div>
+        `;
+        parentCard.appendChild(parentLabel);
+        parentCard.addEventListener('click', exitSubstack);
+        container.appendChild(parentCard);
+    }
+    
     layers.forEach((layer, index) => {
         const card = document.createElement('div');
         card.className = 'layer-card';
@@ -95,8 +118,13 @@ function renderLayers() {
             label.classList.add('selected');
         }
         const hasSubstacks = !inSubstack && layer.substacks && layer.substacks.length > 0;
+        const substackPreview = hasSubstacks ? `
+            <span style="margin-left: 12px; opacity: 0.7; font-size: 14px;">› 
+                <span style="font-size: 12px; background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 3px;">(${layer.substacks.length})</span>
+            </span>
+        ` : '';
         label.innerHTML = `
-            <div class="label-name">${layer.name} ${hasSubstacks ? '<span style="margin-left: 8px; opacity: 0.7;">›</span>' : ''}</div>
+            <div class="label-name">${layer.name}${substackPreview}</div>
             <div class="label-type">${layer.type}</div>
         `;
         
