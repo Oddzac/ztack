@@ -1,6 +1,5 @@
 let currentView = 'stack';
 let canvas, ctx;
-let draggedNode = null;
 let nodePositions = {};
 let zoomLevel = 1;
 let panX = 0;
@@ -8,8 +7,12 @@ let panY = 0;
 let isPanning = false;
 let panStartX = 0;
 let panStartY = 0;
-let dragStartX = 0;
-let dragStartY = 0;
+let lastX = 0;
+let lastY = 0;
+let touchDistance = 0;
+let connections = []; // Store connection metadata for hover detection
+let hoveredConnection = null; // Track currently hovered connection
+let connectionTooltip = null; // Tooltip element
 
 function initDiagramView() {
     canvas = document.getElementById('diagram-canvas');
@@ -21,8 +24,14 @@ function initDiagramView() {
     canvas.addEventListener('mousedown', handleCanvasMouseDown);
     canvas.addEventListener('mousemove', handleCanvasMouseMove);
     canvas.addEventListener('mouseup', handleCanvasMouseUp);
+    canvas.addEventListener('mouseleave', handleCanvasMouseLeave);
     canvas.addEventListener('click', handleCanvasClick);
     canvas.addEventListener('wheel', handleCanvasWheel, { passive: false });
+    
+    // Touch events for mobile
+    canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
+    canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
+    canvas.addEventListener('touchend', handleTouchEnd);
     
     window.addEventListener('resize', resizeCanvas);
     
@@ -257,7 +266,9 @@ function calculateLayerLevels() {
     const allLayers = getAllLayers();
     
     allLayers.forEach(layer => {
-        graph[layer.id] = layer.connections || [];
+        graph[layer.id] = (layer.connections || []).map(c => 
+            typeof c === 'object' ? c.targetId : c
+        );
     });
     
     // DFS to calculate levels (topological ordering)
@@ -282,7 +293,10 @@ function calculateLayerLevels() {
     // Start from layers with no incoming connections (roots)
     const hasIncoming = new Set();
     allLayers.forEach(layer => {
-        (layer.connections || []).forEach(targetId => hasIncoming.add(targetId));
+        const connections = (layer.connections || []).map(c => 
+            typeof c === 'object' ? c.targetId : c
+        );
+        connections.forEach(targetId => hasIncoming.add(targetId));
     });
     
     allLayers.forEach(layer => {
@@ -302,101 +316,7 @@ function calculateLayerLevels() {
 }
 
 function renderDiagram() {
-    if (!canvas || !ctx) return;
-    
-    // Recalculate substack positions in case new ones were added
-    recalculateLayout();
-    
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
-    // Apply zoom and pan
-    ctx.save();
-    ctx.translate(panX, panY);
-    ctx.scale(zoomLevel, zoomLevel);
-    
-    const allLayers = getAllLayers();
-    
-    // Draw substack grouping boxes first
-    project.layers.forEach(layer => {
-        if (layer.substacks && layer.substacks.length > 0 && nodePositions[layer.id]) {
-            const parentPos = nodePositions[layer.id];
-            let minX = parentPos.x, maxX = parentPos.x;
-            let minY = parentPos.y, maxY = parentPos.y;
-            
-            layer.substacks.forEach(sub => {
-                if (nodePositions[sub.id]) {
-                    minX = Math.min(minX, nodePositions[sub.id].x);
-                    maxX = Math.max(maxX, nodePositions[sub.id].x);
-                    minY = Math.min(minY, nodePositions[sub.id].y);
-                    maxY = Math.max(maxY, nodePositions[sub.id].y);
-                }
-            });
-            
-            const paddingVertical = 80;
-            const paddingHorizontal = 120;
-            ctx.strokeStyle = LAYER_TYPES[layer.type] || '#6b7280';
-            ctx.setLineDash([8, 4]);
-            ctx.lineWidth = 2;
-            ctx.strokeRect(minX - paddingHorizontal, minY - paddingVertical, maxX - minX + paddingHorizontal * 2, maxY - minY + paddingVertical * 2);
-            ctx.setLineDash([]);
-            
-            // Group label
-            ctx.fillStyle = LAYER_TYPES[layer.type] || '#6b7280';
-            ctx.font = 'bold 12px sans-serif';
-            ctx.fillText(`${layer.name} Group`, minX - paddingHorizontal + 10, minY - paddingVertical - 5);
-        }
-    });
-    
-    // Draw connections
-    allLayers.forEach(layer => {
-        if (layer.connections) {
-            layer.connections.forEach(targetId => {
-                const target = allLayers.find(l => l.id === targetId);
-                if (target && nodePositions[layer.id] && nodePositions[targetId]) {
-                    // Determine connection style based on layer type
-                    const isSubstackConnection = typeof layer.id === 'string' && layer.id.includes('_');
-                    const isTargetSubstack = typeof targetId === 'string' && targetId.includes('_');
-                    
-                    drawConnection(
-                        nodePositions[layer.id].x,
-                        nodePositions[layer.id].y,
-                        nodePositions[targetId].x,
-                        nodePositions[targetId].y,
-                        isSubstackConnection || isTargetSubstack
-                    );
-                }
-            });
-        }
-    });
-    
-    // Draw parent-to-substack connections
-    project.layers.forEach(layer => {
-        if (layer.substacks && layer.substacks.length > 0 && nodePositions[layer.id]) {
-            layer.substacks.forEach(sub => {
-                if (nodePositions[sub.id]) {
-                    ctx.strokeStyle = LAYER_TYPES[layer.type] || '#6b7280';
-                    ctx.lineWidth = 1.5;
-                    ctx.setLineDash([3, 3]);
-                    ctx.beginPath();
-                    ctx.moveTo(nodePositions[layer.id].x, nodePositions[layer.id].y);
-                    ctx.lineTo(nodePositions[sub.id].x, nodePositions[sub.id].y);
-                    ctx.stroke();
-                    ctx.setLineDash([]);
-                }
-            });
-        }
-    });
-    
-    // Draw nodes
-    allLayers.forEach(layer => {
-        if (nodePositions[layer.id]) {
-            const isSelected = (!inSubstack && project.layers[selectedLayerIndex]?.id === layer.id) ||
-                             (inSubstack && project.layers[selectedLayerIndex].substacks[selectedSubstackIndex]?.id === layer.id);
-            drawNode(layer, nodePositions[layer.id].x, nodePositions[layer.id].y, isSelected);
-        }
-    });
-    
-    ctx.restore();
+    renderDiagramWithHover();
 }
 
 function drawNode(layer, x, y, isSelected) {
@@ -526,19 +446,65 @@ function drawCloud(x, y, width, height, isSelected, color) {
     ctx.stroke();
 }
 
-function drawConnection(x1, y1, x2, y2, isSubstackConnection = false) {
-    ctx.strokeStyle = isSubstackConnection ? '#94a3b8' : '#475569';
-    ctx.lineWidth = isSubstackConnection ? 1.5 : 2;
-    ctx.setLineDash(isSubstackConnection ? [3, 3] : [5, 5]);
+function drawConnection(x1, y1, x2, y2, isSubstackConnection = false, connectionType = 'HTTP', isHovered = false) {
+    // Get connection type styling
+    const typeStyle = CONNECTION_TYPES[connectionType] || CONNECTION_TYPES['HTTP'];
     
-    // Draw arrow
+    // Adjust styling for substack connections (lighter/thinner)
+    let color = typeStyle.color;
+    let lineWidth = typeStyle.width;
+    let pattern = typeStyle.pattern;
+    
+    if (isSubstackConnection) {
+        // Make substack connections slightly lighter
+        color = typeStyle.color.replace(')', ', 0.7)').replace('rgb', 'rgba');
+        lineWidth = Math.max(1, typeStyle.width - 0.5);
+    }
+    
+    // Highlight on hover
+    if (isHovered) {
+        lineWidth += 1.5;
+        color = typeStyle.color.replace(')', ', 1)').replace('rgba', 'rgb');
+    }
+    
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lineWidth;
+    ctx.setLineDash(pattern);
+    
+    // Draw main line
     ctx.beginPath();
     ctx.moveTo(x1, y1);
     ctx.lineTo(x2, y2);
     ctx.stroke();
     
-    // Arrow head
+    // Draw direction flow arrows along the line
     const angle = Math.atan2(y2 - y1, x2 - x1);
+    const distance = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+    const arrowCount = Math.max(1, Math.floor(distance / 100)); // One arrow per ~100px
+    const arrowSize = 6;
+    
+    ctx.fillStyle = color;
+    for (let i = 1; i <= arrowCount; i++) {
+        const t = i / (arrowCount + 1);
+        const arrowX = x1 + (x2 - x1) * t;
+        const arrowY = y1 + (y2 - y1) * t;
+        
+        // Draw small directional arrow
+        ctx.beginPath();
+        ctx.moveTo(arrowX, arrowY);
+        ctx.lineTo(
+            arrowX - arrowSize * Math.cos(angle - Math.PI / 6),
+            arrowY - arrowSize * Math.sin(angle - Math.PI / 6)
+        );
+        ctx.moveTo(arrowX, arrowY);
+        ctx.lineTo(
+            arrowX - arrowSize * Math.cos(angle + Math.PI / 6),
+            arrowY - arrowSize * Math.sin(angle + Math.PI / 6)
+        );
+        ctx.stroke();
+    }
+    
+    // Draw end arrow head
     const headLength = 10;
     ctx.beginPath();
     ctx.moveTo(x2, y2);
@@ -572,52 +538,83 @@ function handleCanvasMouseDown(e) {
     const x = (e.clientX - rect.left - panX) / zoomLevel;
     const y = (e.clientY - rect.top - panY) / zoomLevel;
     
-    dragStartX = e.clientX;
-    dragStartY = e.clientY;
+    lastX = e.clientX;
+    lastY = e.clientY;
     
     const node = getNodeAtPosition(x, y);
-    if (node) {
-        draggedNode = node;
-    } else {
+    if (!node) {
         isPanning = true;
         panStartX = panX;
         panStartY = panY;
-        canvas.style.cursor = 'grabbing';
+        canvas.style.cursor = 'grab';
     }
 }
 
 function handleCanvasMouseMove(e) {
-    const deltaX = e.clientX - dragStartX;
-    const deltaY = e.clientY - dragStartY;
-    const moved = Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3;
-    
     if (isPanning) {
-        panX = panStartX + (e.clientX - dragStartX);
-        panY = panStartY + (e.clientY - dragStartY);
+        const deltaX = e.clientX - lastX;
+        const deltaY = e.clientY - lastY;
+        
+        panX += deltaX;
+        panY += deltaY;
+        
+        lastX = e.clientX;
+        lastY = e.clientY;
+        
+        canvas.style.cursor = 'grabbing';
         renderDiagram();
-    } else if (draggedNode && moved) {
+    } else {
         const rect = canvas.getBoundingClientRect();
         const x = (e.clientX - rect.left - panX) / zoomLevel;
         const y = (e.clientY - rect.top - panY) / zoomLevel;
         
-        nodePositions[draggedNode.id] = { x, y };
-        renderDiagram();
+        const node = getNodeAtPosition(x, y);
+        const foundConnections = getConnectionAtPosition(x, y);
+        
+        if (foundConnections && foundConnections.length > 0) {
+            canvas.style.cursor = 'pointer';
+            
+            // Check if connections changed
+            const connectionsChanged = !hoveredConnection || 
+                hoveredConnection.length !== foundConnections.length ||
+                !hoveredConnection.every((conn, idx) => 
+                    conn.sourceId === foundConnections[idx].sourceId &&
+                    conn.targetId === foundConnections[idx].targetId &&
+                    conn.type === foundConnections[idx].type
+                );
+            
+            if (connectionsChanged) {
+                hoveredConnection = foundConnections;
+                showConnectionTooltip(e, foundConnections);
+                renderDiagram();
+            } else if (connectionTooltip) {
+                // Update tooltip position as mouse moves
+                connectionTooltip.style.left = (e.clientX + 10) + 'px';
+                connectionTooltip.style.top = (e.clientY + 10) + 'px';
+            }
+        } else {
+            canvas.style.cursor = node ? 'pointer' : 'grab';
+            if (hoveredConnection) {
+                hoveredConnection = null;
+                hideConnectionTooltip();
+                renderDiagram();
+            }
+        }
     }
 }
 
 function handleCanvasMouseUp() {
-    draggedNode = null;
     isPanning = false;
-    canvas.style.cursor = 'default';
+    canvas.style.cursor = 'grab';
+}
+
+function handleCanvasMouseLeave() {
+    hoveredConnection = null;
+    hideConnectionTooltip();
+    renderDiagram();
 }
 
 function handleCanvasClick(e) {
-    const deltaX = e.clientX - dragStartX;
-    const deltaY = e.clientY - dragStartY;
-    const moved = Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3;
-    
-    if (moved) return;
-    
     const rect = canvas.getBoundingClientRect();
     const x = (e.clientX - rect.left - panX) / zoomLevel;
     const y = (e.clientY - rect.top - panY) / zoomLevel;
@@ -662,4 +659,305 @@ function toggleView(view) {
         document.getElementById('diagram-view').style.display = 'flex';
         setTimeout(() => initDiagramView(), 50);
     }
+}
+
+// Touch event handlers for mobile pan and zoom
+function handleTouchStart(e) {
+    if (e.touches.length === 1) {
+        // Single touch - panning
+        lastX = e.touches[0].clientX;
+        lastY = e.touches[0].clientY;
+        isPanning = true;
+        panStartX = panX;
+        panStartY = panY;
+    } else if (e.touches.length === 2) {
+        // Two finger touch - pinch zoom
+        isPanning = false;
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        touchDistance = Math.sqrt(dx * dx + dy * dy);
+    }
+}
+
+function handleTouchMove(e) {
+    e.preventDefault();
+    
+    if (e.touches.length === 1 && isPanning) {
+        // Single touch panning
+        const deltaX = e.touches[0].clientX - lastX;
+        const deltaY = e.touches[0].clientY - lastY;
+        
+        panX += deltaX;
+        panY += deltaY;
+        
+        lastX = e.touches[0].clientX;
+        lastY = e.touches[0].clientY;
+        
+        renderDiagram();
+    } else if (e.touches.length === 2) {
+        // Two finger pinch zoom
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const newDistance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (touchDistance > 0) {
+            const scale = newDistance / touchDistance;
+            const newZoom = Math.max(0.3, Math.min(3, zoomLevel * scale));
+            
+            // Zoom towards center of touch points
+            const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+            const centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+            
+            panX = centerX - (centerX - panX) * (newZoom / zoomLevel);
+            panY = centerY - (centerY - panY) * (newZoom / zoomLevel);
+            
+            zoomLevel = newZoom;
+            touchDistance = newDistance;
+            
+            renderDiagram();
+        }
+    }
+}
+
+function handleTouchEnd(e) {
+    isPanning = false;
+    touchDistance = 0;
+}
+
+// Connection hover detection and tooltip functions
+
+function getConnectionAtPosition(x, y) {
+    const tolerance = 15; // Pixels away from line to detect hover
+    const hoveredConnections = [];
+    
+    for (let conn of connections) {
+        const distance = pointToLineDistance(x, y, conn.x1, conn.y1, conn.x2, conn.y2);
+        if (distance < tolerance) {
+            hoveredConnections.push({
+                connection: conn,
+                distance: distance
+            });
+        }
+    }
+    
+    // Sort by distance (closest first)
+    hoveredConnections.sort((a, b) => a.distance - b.distance);
+    
+    // Return array of connections, or null if none found
+    return hoveredConnections.length > 0 ? hoveredConnections.map(h => h.connection) : null;
+}
+
+function pointToLineDistance(px, py, x1, y1, x2, y2) {
+    // Calculate perpendicular distance from point to line segment
+    const A = px - x1;
+    const B = py - y1;
+    const C = x2 - x1;
+    const D = y2 - y1;
+    
+    const dot = A * C + B * D;
+    const lenSq = C * C + D * D;
+    let param = -1;
+    
+    if (lenSq !== 0) param = dot / lenSq;
+    
+    let xx, yy;
+    
+    if (param < 0) {
+        xx = x1;
+        yy = y1;
+    } else if (param > 1) {
+        xx = x2;
+        yy = y2;
+    } else {
+        xx = x1 + param * C;
+        yy = y1 + param * D;
+    }
+    
+    const dx = px - xx;
+    const dy = py - yy;
+    return Math.sqrt(dx * dx + dy * dy);
+}
+
+function showConnectionTooltip(e, connectionsArray) {
+    // Remove existing tooltip if any
+    hideConnectionTooltip();
+    
+    // Ensure connectionsArray is an array
+    if (!Array.isArray(connectionsArray)) {
+        connectionsArray = [connectionsArray];
+    }
+    
+    // Create tooltip element
+    connectionTooltip = document.createElement('div');
+    connectionTooltip.className = 'connection-tooltip';
+    
+    // Build HTML for all connections
+    let tooltipHTML = '';
+    connectionsArray.forEach((connection, index) => {
+        const typeStyle = CONNECTION_TYPES[connection.type] || CONNECTION_TYPES['HTTP'];
+        const typeLabel = typeStyle.label;
+        
+        // Add separator between multiple connections
+        if (index > 0) {
+            tooltipHTML += '<div style="border-top: 1px solid #334155; margin: 6px 0;"></div>';
+        }
+        
+        tooltipHTML += `
+            <div style="font-weight: 600; margin-bottom: 4px; color: ${typeStyle.color};">${typeLabel}</div>
+            <div style="font-size: 12px; color: #cbd5e1;">
+                ${connection.sourceName} → ${connection.targetName}
+            </div>
+        `;
+    });
+    
+    connectionTooltip.innerHTML = tooltipHTML;
+    
+    // Style the tooltip
+    connectionTooltip.style.position = 'fixed';
+    connectionTooltip.style.left = (e.clientX + 10) + 'px';
+    connectionTooltip.style.top = (e.clientY + 10) + 'px';
+    connectionTooltip.style.backgroundColor = '#1e293b';
+    connectionTooltip.style.border = '2px solid #334155';
+    connectionTooltip.style.borderRadius = '6px';
+    connectionTooltip.style.padding = '8px 12px';
+    connectionTooltip.style.fontSize = '13px';
+    connectionTooltip.style.color = '#e2e8f0';
+    connectionTooltip.style.zIndex = '1000';
+    connectionTooltip.style.pointerEvents = 'none';
+    connectionTooltip.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)';
+    connectionTooltip.style.whiteSpace = 'nowrap';
+    connectionTooltip.style.maxWidth = '300px';
+    
+    document.body.appendChild(connectionTooltip);
+}
+
+function hideConnectionTooltip() {
+    if (connectionTooltip) {
+        connectionTooltip.remove();
+        connectionTooltip = null;
+    }
+}
+
+// Update renderDiagram to highlight hovered connections
+function renderDiagramWithHover() {
+    if (!canvas || !ctx) return;
+    
+    // Recalculate substack positions in case new ones were added
+    recalculateLayout();
+    
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // Apply zoom and pan
+    ctx.save();
+    ctx.translate(panX, panY);
+    ctx.scale(zoomLevel, zoomLevel);
+    
+    const allLayers = getAllLayers();
+    
+    // Draw substack grouping boxes first
+    project.layers.forEach(layer => {
+        if (layer.substacks && layer.substacks.length > 0 && nodePositions[layer.id]) {
+            const parentPos = nodePositions[layer.id];
+            let minX = parentPos.x, maxX = parentPos.x;
+            let minY = parentPos.y, maxY = parentPos.y;
+            
+            layer.substacks.forEach(sub => {
+                if (nodePositions[sub.id]) {
+                    minX = Math.min(minX, nodePositions[sub.id].x);
+                    maxX = Math.max(maxX, nodePositions[sub.id].x);
+                    minY = Math.min(minY, nodePositions[sub.id].y);
+                    maxY = Math.max(maxY, nodePositions[sub.id].y);
+                }
+            });
+            
+            const paddingVertical = 80;
+            const paddingHorizontal = 120;
+            ctx.strokeStyle = LAYER_TYPES[layer.type] || '#6b7280';
+            ctx.setLineDash([8, 4]);
+            ctx.lineWidth = 2;
+            ctx.strokeRect(minX - paddingHorizontal, minY - paddingVertical, maxX - minX + paddingHorizontal * 2, maxY - minY + paddingVertical * 2);
+            ctx.setLineDash([]);
+            
+            // Group label
+            ctx.fillStyle = LAYER_TYPES[layer.type] || '#6b7280';
+            ctx.font = 'bold 12px sans-serif';
+            ctx.fillText(`${layer.name} Group`, minX - paddingHorizontal + 10, minY - paddingVertical - 5);
+        }
+    });
+    
+    // Draw connections with hover highlighting
+    connections = [];
+    allLayers.forEach(layer => {
+        if (layer.connections) {
+            layer.connections.forEach(conn => {
+                const targetId = typeof conn === 'object' ? conn.targetId : conn;
+                const connectionType = typeof conn === 'object' ? conn.type : 'HTTP';
+                const target = allLayers.find(l => l.id == targetId);
+                
+                const actualTargetId = target ? target.id : targetId;
+                
+                if (target && nodePositions[layer.id] && nodePositions[actualTargetId]) {
+                    const isSubstackConnection = typeof layer.id === 'string' && layer.id.includes('_');
+                    const isTargetSubstack = typeof actualTargetId === 'string' && actualTargetId.includes('_');
+                    
+                    const x1 = nodePositions[layer.id].x;
+                    const y1 = nodePositions[layer.id].y;
+                    const x2 = nodePositions[actualTargetId].x;
+                    const y2 = nodePositions[actualTargetId].y;
+                    
+                    const connObj = {
+                        x1, y1, x2, y2,
+                        sourceId: layer.id,
+                        sourceName: layer.name,
+                        targetId: actualTargetId,
+                        targetName: target.name,
+                        type: connectionType,
+                        isSubstack: isSubstackConnection || isTargetSubstack
+                    };
+                    connections.push(connObj);
+                    
+                    // Check if this connection is in the hovered connections array
+                    let isHovered = false;
+                    if (hoveredConnection && Array.isArray(hoveredConnection)) {
+                        isHovered = hoveredConnection.some(hc => 
+                            hc.sourceId === connObj.sourceId && 
+                            hc.targetId === connObj.targetId &&
+                            hc.type === connObj.type
+                        );
+                    }
+                    
+                    drawConnection(x1, y1, x2, y2, isSubstackConnection || isTargetSubstack, connectionType, isHovered);
+                }
+            });
+        }
+    });
+    
+    // Draw parent-to-substack connections
+    project.layers.forEach(layer => {
+        if (layer.substacks && layer.substacks.length > 0 && nodePositions[layer.id]) {
+            layer.substacks.forEach(sub => {
+                if (nodePositions[sub.id]) {
+                    ctx.strokeStyle = LAYER_TYPES[layer.type] || '#6b7280';
+                    ctx.lineWidth = 1.5;
+                    ctx.setLineDash([3, 3]);
+                    ctx.beginPath();
+                    ctx.moveTo(nodePositions[layer.id].x, nodePositions[layer.id].y);
+                    ctx.lineTo(nodePositions[sub.id].x, nodePositions[sub.id].y);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                }
+            });
+        }
+    });
+    
+    // Draw nodes
+    allLayers.forEach(layer => {
+        if (nodePositions[layer.id]) {
+            const isSelected = (!inSubstack && project.layers[selectedLayerIndex]?.id === layer.id) ||
+                             (inSubstack && project.layers[selectedLayerIndex].substacks[selectedSubstackIndex]?.id === layer.id);
+            drawNode(layer, nodePositions[layer.id].x, nodePositions[layer.id].y, isSelected);
+        }
+    });
+    
+    ctx.restore();
 }

@@ -189,15 +189,15 @@ npx http-server
 - [ ] Double-click empty space to create new layer
 - [ ] Right-click context menu (edit, delete, duplicate)
 - [ ] Drag from node to node to create connections
-- [ ] Connection labels (HTTP, gRPC, Event Bus, etc.)
-- [ ] Connection type indicators (sync/async, request/response)
-- [ ] Hover over connection to see details
-- [ ] Zoom in/out controls
-- [ ] Auto-layout button (organize nodes automatically)
-- [ ] Grid snap for precise positioning
+- [x] Connection labels (HTTP, gRPC, Event Bus, etc.)
+- [x] Connection type indicators (sync/async, request/response)
+- [x] Hover over connection to see details
+- [x] Zoom in/out controls
+- [x] Auto-layout (organize nodes automatically)
+~~- [ ] Grid snap for precise positioning~~
 
 ### Phase 3: Visual Enhancements (Planned)
-- [ ] Visual grouping boxes around substacks in diagram
+- [x] Visual grouping boxes around substacks in diagram
 - [ ] Breadcrumb navigation (Main > Layer > Substack)
 - [ ] Mini-map for large architectures
 - [ ] Preview thumbnails of substacks in main view

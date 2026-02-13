@@ -16,7 +16,73 @@ function loadProject() {
 }
 
 function saveProject() {
+    console.log('>>> SAVING PROJECT TO LOCALSTORAGE <<<');
+    console.log('Project name:', project.name);
+    console.log('Total layers:', project.layers.length);
+    
+    // Log all connections in the project
+    project.layers.forEach((layer, idx) => {
+        if (layer.connections && layer.connections.length > 0) {
+            console.log(`  Layer ${idx} (${layer.name}): ${layer.connections.length} connections`);
+            layer.connections.forEach(conn => {
+                const type = typeof conn === 'object' ? conn.type : 'HTTP';
+                const targetId = typeof conn === 'object' ? conn.targetId : conn;
+                console.log(`    -> Target ${targetId}, Type: ${type}`);
+            });
+        }
+        
+        // Log substack connections
+        if (layer.substacks && layer.substacks.length > 0) {
+            layer.substacks.forEach((sub, subIdx) => {
+                if (sub.connections && sub.connections.length > 0) {
+                    console.log(`  Substack ${subIdx} (${sub.name}): ${sub.connections.length} connections`);
+                    sub.connections.forEach(conn => {
+                        const type = typeof conn === 'object' ? conn.type : 'HTTP';
+                        const targetId = typeof conn === 'object' ? conn.targetId : conn;
+                        console.log(`    -> Target ${targetId}, Type: ${type}`);
+                    });
+                }
+            });
+        }
+    });
+    
     localStorage.setItem('ztack_project', JSON.stringify(project));
+    console.log('>>> PROJECT SAVED <<<\n');
+}
+
+// Debug helper function - call from console
+function debugProject() {
+    console.log('\n========== PROJECT DEBUG ==========');
+    console.log('Current View:', currentView);
+    console.log('Selected Layer Index:', selectedLayerIndex);
+    console.log('In Substack:', inSubstack);
+    if (inSubstack) {
+        console.log('Selected Substack Index:', selectedSubstackIndex);
+    }
+    
+    const currentLayer = inSubstack 
+        ? project.layers[selectedLayerIndex].substacks[selectedSubstackIndex]
+        : project.layers[selectedLayerIndex];
+    
+    console.log('\nCurrent Layer/Substack:');
+    console.log('  Name:', currentLayer.name);
+    console.log('  ID:', currentLayer.id);
+    console.log('  Connections:', JSON.parse(JSON.stringify(currentLayer.connections)));
+    
+    console.log('\nAll Project Connections:');
+    project.layers.forEach((layer, idx) => {
+        if (layer.connections && layer.connections.length > 0) {
+            console.log(`Layer ${idx} (${layer.name}):`, JSON.parse(JSON.stringify(layer.connections)));
+        }
+        if (layer.substacks) {
+            layer.substacks.forEach((sub, subIdx) => {
+                if (sub.connections && sub.connections.length > 0) {
+                    console.log(`  Substack ${subIdx} (${sub.name}):`, JSON.parse(JSON.stringify(sub.connections)));
+                }
+            });
+        }
+    });
+    console.log('========== END DEBUG ==========\n');
 }
 
 function saveState() {
@@ -234,6 +300,11 @@ function renderLayerDetails(layer) {
     const detailsDiv = document.getElementById('layer-details');
     const availableTargets = getAvailableConnectionTargets(layer);
     
+    // Normalize connections to object format for consistent handling
+    const normalizedConnections = (layer.connections || []).map(c => 
+        typeof c === 'object' ? c : { targetId: c, type: 'HTTP' }
+    );
+    
     // Generate unique ID for this layer's search input
     const searchInputId = `conn-search-${layer.id}`;
     
@@ -271,7 +342,7 @@ function renderLayerDetails(layer) {
                     Properties
                 </button>
                 <button class="detail-tab" data-tab="connections" onclick="switchDetailTab('connections')">
-                    Connections <span style="font-size: 10px; margin-left: 4px; opacity: 0.7;">${(layer.connections || []).length}</span>
+                    Connections <span style="font-size: 10px; margin-left: 4px; opacity: 0.7;">${normalizedConnections.length}</span>
                 </button>
                 ${!inSubstack ? `
                     <button class="detail-tab" data-tab="substacks" onclick="switchDetailTab('substacks')">
@@ -346,7 +417,7 @@ function renderLayerDetails(layer) {
                     <div class="detail-section" style="display: flex; flex-direction: column; flex: 1; min-height: 0; margin-bottom: 0;">
                         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; flex-shrink: 0;">
                             <div class="detail-label" style="margin: 0;">Connections ${inSubstack ? '(Substack)' : '(Layer)'}</div>
-                            <span style="font-size: 11px; color: #64748b;">${(layer.connections || []).length}/${availableTargets.length}</span>
+                            <span style="font-size: 11px; color: #64748b;">${normalizedConnections.length}/${availableTargets.length}</span>
                         </div>
                         <div style="font-size: 11px; color: #64748b; margin-bottom: 8px; flex-shrink: 0;">
                             ${inSubstack ? 'Connections from this substack component' : 'Connections from this layer'}
@@ -356,16 +427,25 @@ function renderLayerDetails(layer) {
                                onkeyup="filterConnections('${searchInputId}', '${layer.id}')">
                         <div class="connections-list" style="flex: 1; overflow-y: auto; border: 1px solid #334155; border-radius: 4px; padding: 8px; min-height: 0;">
                             ${availableTargets.length === 0 ? '<span style="color: #64748b; font-size: 12px;">No available targets</span>' : ''}
-                            ${availableTargets.map(target => `
-                                <label class="connection-item" data-search="${(target.name + target.type).toLowerCase()}" style="display: flex; align-items: center; gap: 8px; padding: 8px 6px; cursor: pointer; border-radius: 3px; transition: background 0.2s; margin-bottom: 4px;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">
-                                    <input type="checkbox" ${(layer.connections || []).includes(target.id) ? 'checked' : ''} 
-                                           onchange="toggleConnection('${target.id}', this.checked)">
+                            ${availableTargets.map(target => {
+                                const existingConnection = normalizedConnections.find(c => c.targetId == target.id);
+                                const connectionType = existingConnection ? existingConnection.type : 'HTTP';
+                                return `
+                                <div class="connection-item" data-search="${(target.name + target.type).toLowerCase()}" style="display: flex; align-items: center; gap: 8px; padding: 8px 6px; cursor: pointer; border-radius: 3px; transition: background 0.2s; margin-bottom: 4px; border: 1px solid #334155;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">
+                                    <input type="checkbox" ${existingConnection ? 'checked' : ''} 
+                                           onchange="toggleConnection('${target.id}', this.checked, '${connectionType}')">
                                     <div style="flex: 1; min-width: 0;">
                                         <div style="font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${target.name}</div>
                                         <div style="font-size: 10px; color: #64748b;">${target.type}${target.isSubstack ? ' • substack' : ''}</div>
                                     </div>
-                                </label>
-                            `).join('')}
+                                    <select id="type-${target.id}" class="detail-select" style="font-size: 11px; padding: 4px 6px; width: auto;" 
+                                            onchange="updateConnectionType('${target.id}', this.value)" ${!existingConnection ? 'disabled' : ''}>
+                                        ${Object.entries(CONNECTION_TYPES).map(([key, val]) => 
+                                            `<option value="${key}" ${connectionType === key ? 'selected' : ''}>${val.label}</option>`
+                                        ).join('')}
+                                    </select>
+                                </div>
+                            `}).join('')}
                         </div>
                     </div>
                 </div>
@@ -496,28 +576,92 @@ function switchDetailTab(tabName) {
     }
 }
 
-function toggleConnection(targetId, isConnected) {
+function toggleConnection(targetId, isConnected, connectionType = 'HTTP') {
     const currentLayer = inSubstack 
         ? project.layers[selectedLayerIndex].substacks[selectedSubstackIndex]
         : project.layers[selectedLayerIndex];
+    
+    // Ensure targetId is a number if it's a main layer, or string if it's a substack
+    const allLayers = getAllLayers();
+    const targetLayer = allLayers.find(l => l.id == targetId);
+    if (targetLayer) {
+        targetId = targetLayer.id; // Use the actual ID type from the layer
+    }
     
     if (!currentLayer.connections) {
         currentLayer.connections = [];
     }
     
+    // Normalize connections to object format
+    currentLayer.connections = currentLayer.connections.map(c => 
+        typeof c === 'object' ? c : { targetId: c, type: 'HTTP' }
+    );
+    
     saveState();
     
     if (isConnected) {
-        if (!currentLayer.connections.includes(targetId)) {
-            currentLayer.connections.push(targetId);
+        // Check if connection already exists (compare with proper type)
+        const existingConnection = currentLayer.connections.find(c => c.targetId == targetId);
+        if (!existingConnection) {
+            currentLayer.connections.push({ targetId, type: connectionType });
         }
     } else {
-        currentLayer.connections = currentLayer.connections.filter(id => id !== targetId);
+        currentLayer.connections = currentLayer.connections.filter(c => c.targetId != targetId);
     }
     
     saveProject();
+    
+    // Enable/disable the type dropdown
+    const typeSelect = document.getElementById(`type-${targetId}`);
+    if (typeSelect) {
+        typeSelect.disabled = !isConnected;
+    }
+    
     if (currentView === 'diagram') {
         renderDiagram();
+    }
+}
+
+function updateConnectionType(targetId, newType) {
+    const currentLayer = inSubstack 
+        ? project.layers[selectedLayerIndex].substacks[selectedSubstackIndex]
+        : project.layers[selectedLayerIndex];
+    
+    // Ensure targetId is a number if it's a main layer, or string if it's a substack
+    const allLayers = getAllLayers();
+    const targetLayer = allLayers.find(l => l.id == targetId);
+    if (targetLayer) {
+        targetId = targetLayer.id; // Use the actual ID type from the layer
+    }
+    
+    if (!currentLayer.connections) {
+        return;
+    }
+    
+    // Normalize connections to object format
+    currentLayer.connections = currentLayer.connections.map(c => 
+        typeof c === 'object' ? c : { targetId: c, type: 'HTTP' }
+    );
+    
+    saveState();
+    
+    const connectionIndex = currentLayer.connections.findIndex(c => c.targetId == targetId);
+    
+    if (connectionIndex !== -1) {
+        currentLayer.connections[connectionIndex].type = newType;
+    }
+    
+    saveProject();
+    
+    // Re-render diagram to reflect changes
+    if (currentView === 'diagram') {
+        renderDiagram();
+    }
+    
+    // Update the type selector to reflect the change without re-rendering entire panel
+    const typeSelect = document.getElementById(`type-${targetId}`);
+    if (typeSelect) {
+        typeSelect.value = newType;
     }
 }
 

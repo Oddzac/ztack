@@ -8,6 +8,17 @@ const LAYER_TYPES = {
     'Other': '#6b7280'
 };
 
+const CONNECTION_TYPES = {
+    'HTTP': { label: 'HTTP/REST', color: '#3b82f6', pattern: [5, 5], width: 2 },
+    'gRPC': { label: 'gRPC', color: '#8b5cf6', pattern: [8, 4], width: 2 },
+    'Event': { label: 'Event Bus', color: '#f59e0b', pattern: [3, 3], width: 2 },
+    'Database': { label: 'Database Query', color: '#06b6d4', pattern: [2, 4], width: 2 },
+    'Cache': { label: 'Cache', color: '#10b981', pattern: [6, 2], width: 1.5 },
+    'Message': { label: 'Message Queue', color: '#ef4444', pattern: [4, 4], width: 2 },
+    'Sync': { label: 'Synchronous', color: '#64748b', pattern: [5, 5], width: 2 },
+    'Async': { label: 'Asynchronous', color: '#94a3b8', pattern: [3, 3], width: 1.5 }
+};
+
 const SAMPLE_PROJECT = {
     'name': 'Sample Project',
     'layers': [
