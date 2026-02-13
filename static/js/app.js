@@ -92,6 +92,22 @@ function redo() {
     }
 }
 
+// Toggle details panel
+function toggleDetailsPanel() {
+    const panel = document.getElementById('details-panel');
+    const toggle = document.getElementById('panel-toggle');
+    panel.classList.toggle('collapsed');
+    toggle.textContent = panel.classList.contains('collapsed') ? '▶' : '◀';
+    toggle.style.right = panel.classList.contains('collapsed') ? '0' : '500px';
+    
+    // Resize canvas when panel toggles
+    setTimeout(() => {
+        if (currentView === 'diagram' && canvas) {
+            resizeCanvas();
+        }
+    }, 300);
+}
+
 function calculateTotalLayerCost(layer) {
     // Calculate total cost including substacks
     let totalCost = layer.costModel?.fixedCost || 0;
@@ -117,7 +133,8 @@ function getLayerCostComponents(layer) {
                 amount: layer.costModel.fixedCost,
                 period: layer.costModel.period,
                 currency: layer.costModel.currency,
-                type: 'fixed'
+                type: 'fixed',
+                source: layer.name
             });
         }
         if (layer.costModel.variableCost > 0) {
@@ -126,7 +143,8 @@ function getLayerCostComponents(layer) {
                 period: layer.costModel.period,
                 currency: layer.costModel.currency,
                 unit: layer.costModel.variableUnit,
-                type: 'variable'
+                type: 'variable',
+                source: layer.name
             });
         }
     }
@@ -140,7 +158,8 @@ function getLayerCostComponents(layer) {
                         amount: substack.costModel.fixedCost,
                         period: substack.costModel.period,
                         currency: substack.costModel.currency,
-                        type: 'fixed'
+                        type: 'fixed',
+                        source: substack.name
                     });
                 }
                 if (substack.costModel.variableCost > 0) {
@@ -149,7 +168,8 @@ function getLayerCostComponents(layer) {
                         period: substack.costModel.period,
                         currency: substack.costModel.currency,
                         unit: substack.costModel.variableUnit,
-                        type: 'variable'
+                        type: 'variable',
+                        source: substack.name
                     });
                 }
             }
@@ -208,6 +228,269 @@ function formatCostComponent(component) {
     return `${symbol}${component.amount}${periodLabel}`;
 }
 
+function aggregateStackCosts(layers) {
+    // Aggregate all costs from all layers and substacks
+    const allComponents = [];
+    
+    layers.forEach(layer => {
+        const components = getLayerCostComponents(layer);
+        allComponents.push(...components);
+    });
+    
+    // Group by period and variable unit (combine similar variable costs)
+    const grouped = {};
+    
+    allComponents.forEach(comp => {
+        // For variable costs, group by unit; for fixed, group by period
+        const key = comp.type === 'variable' && comp.unit 
+            ? `${comp.type}|${comp.unit}`
+            : `${comp.period}|${comp.type}`;
+        
+        if (!grouped[key]) {
+            grouped[key] = {
+                amount: 0,
+                period: comp.period,
+                currency: comp.currency,
+                type: comp.type,
+                unit: comp.unit,
+                contributors: []
+            };
+        }
+        
+        grouped[key].amount += comp.amount;
+        grouped[key].contributors.push(comp);
+    });
+    
+    // Convert to array and sort
+    return Object.values(grouped).sort((a, b) => {
+        if (a.type !== b.type) return a.type === 'fixed' ? -1 : 1;
+        return a.period.localeCompare(b.period);
+    });
+}
+
+function consolidateVariableCosts(aggregated) {
+    // Consolidate variable costs into semantic buckets
+    const fixed = aggregated.filter(a => a.type === 'fixed');
+    const variable = aggregated.filter(a => a.type === 'variable');
+    
+    // Group variable costs by semantic category
+    const buckets = {
+        'requests': [],
+        'storage': [],
+        'data': [],
+        'compute': [],
+        'other': []
+    };
+    
+    variable.forEach(v => {
+        const unit = (v.unit || '').toLowerCase();
+        
+        if (unit.includes('request') || unit.includes('call') || unit.includes('api')) {
+            buckets.requests.push(v);
+        } else if (unit.includes('gb') || unit.includes('storage') || unit.includes('disk')) {
+            buckets.storage.push(v);
+        } else if (unit.includes('log') || unit.includes('indexed') || unit.includes('scan')) {
+            buckets.data.push(v);
+        } else if (unit.includes('cpu') || unit.includes('memory') || unit.includes('hour') || unit.includes('compute')) {
+            buckets.compute.push(v);
+        } else {
+            buckets.other.push(v);
+        }
+    });
+    
+    // Build consolidated result
+    const consolidated = [...fixed];
+    
+    // Add consolidated variable buckets
+    Object.entries(buckets).forEach(([category, items]) => {
+        if (items.length > 0) {
+            // Sum amounts for this bucket and flatten all contributors
+            const totalAmount = items.reduce((sum, item) => sum + item.amount, 0);
+            
+            // Flatten contributors from all items in this bucket
+            const allContributors = [];
+            items.forEach(item => {
+                if (item.contributors && Array.isArray(item.contributors)) {
+                    allContributors.push(...item.contributors);
+                }
+            });
+            
+            consolidated.push({
+                amount: totalAmount,
+                period: null,
+                currency: items[0].currency,
+                type: 'variable',
+                unit: category,
+                isBucket: true,
+                contributors: allContributors
+            });
+        }
+    });
+    
+    return consolidated;
+}
+
+function formatStackCostBanner() {
+    // Format the aggregated costs for display in banner, separating fixed and variable
+    const aggregated = aggregateStackCosts(project.layers);
+    const consolidated = consolidateVariableCosts(aggregated);
+    
+    if (consolidated.length === 0) {
+        return 'Total: Free';
+    }
+    
+    // Separate fixed and variable costs
+    const fixedCosts = consolidated.filter(c => c.type === 'fixed');
+    const variableCosts = consolidated.filter(c => c.type === 'variable');
+    
+    let bannerText = 'Total: ';
+    
+    // Format fixed costs
+    if (fixedCosts.length > 0) {
+        const fixedFormatted = fixedCosts.map((comp, idx) => {
+            const currency = comp.currency || 'USD';
+            const symbol = currency === 'USD' ? '$' : currency === 'EUR' ? '€' : currency === 'GBP' ? '£' : currency;
+            
+            let periodLabel = '';
+            if (comp.period === 'month') periodLabel = '/mo';
+            else if (comp.period === 'year') periodLabel = '/yr';
+            else if (comp.period) periodLabel = `/${comp.period}`;
+            
+            return `${symbol}${comp.amount}${periodLabel}`;
+        }).join(' + ');
+        
+        bannerText += `<strong>Fixed:</strong> ${fixedFormatted}`;
+    }
+    
+    // Format variable costs
+    if (variableCosts.length > 0) {
+        const variableFormatted = variableCosts.map((comp, idx) => {
+            const currency = comp.currency || 'USD';
+            const symbol = currency === 'USD' ? '$' : currency === 'EUR' ? '€' : currency === 'GBP' ? '£' : currency;
+            
+            if (comp.unit) {
+                // Format bucket name nicely
+                const bucketName = comp.unit.charAt(0).toUpperCase() + comp.unit.slice(1);
+                const bucketId = `cost-bucket-var-${idx}`;
+                // Use variable-specific index for bucket ID
+                return `<span id="${bucketId}" style="cursor: help; text-decoration: underline dotted; text-decoration-color: rgba(148, 163, 184, 0.5);">${symbol}${comp.amount} ${bucketName}</span>`;
+            }
+            
+            return `${symbol}${comp.amount}`;
+        }).join(' + ');
+        
+        if (fixedCosts.length > 0) {
+            bannerText += ` || <strong>Variable:</strong> ${variableFormatted}`;
+        } else {
+            bannerText += `<strong>Variable:</strong> ${variableFormatted}`;
+        }
+    }
+    
+    return bannerText;
+}
+
+function buildStackCostTooltip() {
+    // Build detailed tooltip showing cost breakdown grouped by layer with substacks
+    if (project.layers.length === 0) {
+        return '<div style="font-weight: 500;">No costs configured</div>';
+    }
+    
+    let tooltip = '<div style="font-weight: 500; margin-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.2); padding-bottom: 8px;">Stack Cost Breakdown:</div>';
+    
+    // Build layer breakdown with substacks
+    const layerBreakdown = [];
+    
+    project.layers.forEach(layer => {
+        const layerTotal = calculateTotalLayerCost(layer);
+        const layerEntry = {
+            name: layer.name,
+            total: layerTotal,
+            substacks: []
+        };
+        
+        // Add substack costs
+        if (layer.substacks && layer.substacks.length > 0) {
+            layer.substacks.forEach(substack => {
+                const substackCost = substack.costModel?.fixedCost || 0;
+                if (substackCost > 0) {
+                    layerEntry.substacks.push({
+                        name: substack.name,
+                        cost: substackCost
+                    });
+                }
+            });
+            
+            // Sort substacks by cost descending
+            layerEntry.substacks.sort((a, b) => b.cost - a.cost);
+        }
+        
+        if (layerTotal > 0) {
+            layerBreakdown.push(layerEntry);
+        }
+    });
+    
+    // Sort layers by total cost descending
+    layerBreakdown.sort((a, b) => b.total - a.total);
+    
+    // Calculate total lines needed
+    const linesPerColumn = 20;
+    let totalLines = 0;
+    layerBreakdown.forEach(layer => {
+        totalLines += 1 + layer.substacks.length; // 1 for header + substacks
+    });
+    
+    // Calculate optimal number of columns
+    let numColumns = Math.ceil(totalLines / linesPerColumn);
+    
+    // Distribute layers evenly across columns
+    const columns = Array.from({ length: numColumns }, () => []);
+    let columnLineCount = Array(numColumns).fill(0);
+    
+    layerBreakdown.forEach(layer => {
+        const layerLines = 1 + layer.substacks.length;
+        
+        // Find the column with the least lines
+        let minColumn = 0;
+        let minLines = columnLineCount[0];
+        
+        for (let i = 1; i < numColumns; i++) {
+            if (columnLineCount[i] < minLines) {
+                minLines = columnLineCount[i];
+                minColumn = i;
+            }
+        }
+        
+        // Add layer to the column with least lines
+        columns[minColumn].push(layer);
+        columnLineCount[minColumn] += layerLines;
+    });
+    
+    // Build HTML for columns
+    tooltip += '<div style="display: flex; gap: 24px;">';
+    
+    columns.forEach(column => {
+        tooltip += '<div style="flex: 0 0 auto;">';
+        
+        column.forEach((layer, layerIdx) => {
+            const symbol = '$';
+            const marginTop = layerIdx > 0 ? '8px' : '0';
+            tooltip += `<div style="color: #e2e8f0; font-weight: 500; font-size: 11px; margin-bottom: 4px; margin-top: ${marginTop};">${layer.name} - ${symbol}${layer.total}/mo</div>`;
+            
+            // Add substacks
+            layer.substacks.forEach(substack => {
+                tooltip += `<div style="color: #cbd5e1; font-size: 11px; margin-bottom: 2px; white-space: nowrap; margin-left: 12px;">- ${substack.name}: ${symbol}${substack.cost}/mo</div>`;
+            });
+        });
+        
+        tooltip += '</div>';
+    });
+    
+    tooltip += '</div>';
+    
+    return tooltip;
+}
+
+
 function renderLayers() {
     const container = document.getElementById('stack-container');
     container.innerHTML = '';
@@ -216,6 +499,127 @@ function renderLayers() {
         ? project.layers[selectedLayerIndex].substacks 
         : project.layers;
     const currentIndex = inSubstack ? selectedSubstackIndex : selectedLayerIndex;
+    
+    // Add cost aggregation banner at top (only for main layer view)
+    if (!inSubstack) {
+        console.log('[BANNER] Creating cost aggregation banner');
+        
+        // Remove any existing banner
+        const existingBanner = document.getElementById('stack-cost-banner');
+        if (existingBanner) {
+            existingBanner.remove();
+        }
+        
+        const banner = document.createElement('div');
+        banner.id = 'stack-cost-banner';
+        
+        const gradientStyle = `
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(35deg, rgba(15, 23, 42, 0) 0%, rgba(15, 23, 42, 0.3) 40%, rgba(15, 23, 42, 0.95) 70%, rgba(15, 23, 42, 0.95) 100%);
+            border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+            padding: 12px 40px;
+            text-align: right;
+            font-size: 12px;
+            color: #94a3b8;
+            z-index: 50;
+            backdrop-filter: blur(4px);
+            pointer-events: auto;
+        `;
+        
+        banner.style.cssText = gradientStyle;
+        
+        const bannerText = formatStackCostBanner();
+        
+        // Parse the banner text to extract total and remaining costs
+        // Format is: "Total: <strong>Fixed:</strong> $X/mo || <strong>Variable:</strong> ..."
+        // or just: "Total: <strong>Fixed:</strong> $X/mo"
+        
+        // Extract everything after "Total: "
+        const totalMatch = bannerText.match(/Total:\s*(.+?)(?:\s*\|\||$)/);
+        const totalAmount = totalMatch ? totalMatch[1].trim() : '';
+        
+        // Check if there's a variable section after ||
+        const hasVariable = bannerText.includes('||');
+        const remainingCosts = hasVariable ? bannerText.replace(/Total:\s*[^|]+\|\|\s*/, '') : '';
+        
+        // Create a wrapper for the "Total: ..." that has the tooltip
+        const totalSpan = document.createElement('span');
+        totalSpan.id = 'cost-total-label';
+        totalSpan.style.cssText = `
+            cursor: help;
+            text-decoration: underline dotted;
+            text-decoration-color: rgba(148, 163, 184, 0.5);
+            position: relative;
+            z-index: 51;
+        `;
+        totalSpan.innerHTML = `Total: ${totalAmount}`;
+        
+        // Add tooltip to total label
+        const tooltipContent = buildStackCostTooltip();
+        totalSpan.setAttribute('data-tooltip-content', tooltipContent);
+        totalSpan.addEventListener('mouseenter', function() { showCostTooltip(this); });
+        totalSpan.addEventListener('mouseleave', function() { hideCostTooltip(); });
+        
+        banner.appendChild(totalSpan);
+        
+        // Add separator and remaining cost items if there are any
+        if (remainingCosts.trim()) {
+            const separatorSpan = document.createElement('span');
+            separatorSpan.textContent = ' || ';
+            separatorSpan.style.position = 'relative';
+            separatorSpan.style.zIndex = '51';
+            banner.appendChild(separatorSpan);
+            
+            const costItemsSpan = document.createElement('span');
+            costItemsSpan.innerHTML = remainingCosts;
+            costItemsSpan.style.position = 'relative';
+            costItemsSpan.style.zIndex = '51';
+            banner.appendChild(costItemsSpan);
+        }
+        
+        container.insertBefore(banner, container.firstChild);
+        
+        // Attach tooltips to individual cost buckets (after banner is in DOM)
+        const aggregated = aggregateStackCosts(project.layers);
+        const consolidated = consolidateVariableCosts(aggregated);
+        
+        // Filter to only variable costs with buckets
+        const variableBuckets = consolidated.filter(c => c.type === 'variable' && c.isBucket);
+        
+        variableBuckets.forEach((comp, varIdx) => {
+            // Build tooltip for this specific bucket
+            let bucketTooltip = `<div style="font-weight: 500; margin-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.2); padding-bottom: 8px;">${comp.unit.charAt(0).toUpperCase() + comp.unit.slice(1)} Costs:</div>`;
+            
+            // Sort contributors by amount descending
+            const sortedContributors = [...comp.contributors].sort((a, b) => b.amount - a.amount);
+            
+            sortedContributors.forEach(contrib => {
+                const currency = contrib.currency || 'USD';
+                const symbol = currency === 'USD' ? '$' : currency === 'EUR' ? '€' : currency === 'GBP' ? '£' : currency;
+                
+                const layerName = contrib.source || 'Unknown';
+                const unit = contrib.unit || '';
+                bucketTooltip += `<div style="margin-bottom: 4px; color: #cbd5e1; font-size: 11px;">• ${layerName}: ${symbol}${contrib.amount} ${unit}</div>`;
+            });
+            
+            // Find the bucket span and attach tooltip using the variable-specific ID
+            const bucketId = `cost-bucket-var-${varIdx}`;
+            const bucketSpan = document.getElementById(bucketId);
+            if (bucketSpan) {
+                bucketSpan.setAttribute('data-tooltip-content', bucketTooltip);
+                bucketSpan.style.cursor = 'help';
+                bucketSpan.addEventListener('mouseenter', function(e) { 
+                    e.stopPropagation();
+                    showCostTooltip(this); 
+                });
+                bucketSpan.addEventListener('mouseleave', function() { hideCostTooltip(); });
+            }
+        });
+        console.log('[BANNER] Banner creation complete');
+    }
     
     // Helper function to format cost display
     const formatCostBadge = (layer) => {
@@ -277,11 +681,15 @@ function renderLayers() {
         if (index === currentIndex) {
             label.classList.add('selected');
         }
+        
+        // Determine if this layer is selected (used for hover effects)
+        const isSelected = index === currentIndex;
+        
         const hasSubstacks = !inSubstack && layer.substacks && layer.substacks.length > 0;
         const substackPreview = hasSubstacks ? `
-            <span style="font-size: 12px; background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 3px; cursor: pointer; transition: background 0.2s;" 
-                  onmouseover="this.style.background='rgba(255,255,255,0.2)'" 
-                  onmouseout="this.style.background='rgba(255,255,255,0.1)'"
+            <span style="font-size: 12px; background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 3px; cursor: ${isSelected ? 'pointer' : 'default'}; transition: background 0.2s; pointer-events: ${isSelected ? 'auto' : 'none'};" 
+                  onmouseover="${isSelected ? "this.style.background='rgba(255,255,255,0.2)'" : ''}" 
+                  onmouseout="${isSelected ? "this.style.background='rgba(255,255,255,0.1)'" : ''}"
                   onclick="event.stopPropagation(); enterSubstack();">(${layer.substacks.length})</span>
         ` : '';
         const displayName = layer.name.length > 20 ? layer.name : `<span style="white-space: nowrap;">${layer.name}</span>`;
@@ -296,9 +704,14 @@ function renderLayers() {
         card.appendChild(label);
         
         // Create cost badge as a separate element with pointer-events: auto
-        // Fades in/out with label, no text wrapping, expands horizontally
+        // Fades in/out with label, allows natural wrapping for long strings
         const costBadge = document.createElement('span');
         costBadge.id = `cost-badge-${layer.id}`;
+        
+        // Only enable pointer-events and cursor for selected badge
+        const pointerEvents = isSelected ? 'auto' : 'none';
+        const cursor = isSelected ? 'help' : 'default';
+        
         costBadge.style.cssText = `
             position: absolute;
             left: 250px;
@@ -306,18 +719,22 @@ function renderLayers() {
             font-size: 11px;
             background: rgba(16, 185, 129, 0.2);
             color: #10b981;
-            padding: 2px 6px;
+            padding: 4px 6px;
             border-radius: 3px;
-            pointer-events: auto;
-            cursor: help;
+            pointer-events: ${pointerEvents};
+            cursor: ${cursor};
+            display: inline-block;
+            line-height: 1.5;
             white-space: nowrap;
-            opacity: ${index === currentIndex ? '1' : '0'};
+            opacity: ${isSelected ? '1' : '0'};
             transition: opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1);
         `;
-        costBadge.textContent = formatCostBadge(layer);
+        // Replace pipes with line breaks for clean display
+        const costText = formatCostBadge(layer);
+        costBadge.innerHTML = costText.replace(/ \| /g, '<br>');
         
-        // Attach tooltip event listeners to cost badge if it has substacks
-        if (!inSubstack && layer.substacks && layer.substacks.length > 0) {
+        // Attach tooltip event listeners to cost badge ONLY if selected and has substacks
+        if (!inSubstack && isSelected && layer.substacks && layer.substacks.length > 0) {
             const components = getLayerCostComponents(layer);
             if (components.length > 0) {
                 const groupedComponents = groupCostsByPeriod(components);
@@ -646,22 +1063,24 @@ function renderLayerDetails(layer) {
                 
                 <!-- Cost Tab -->
                 <div class="detail-tab-content" data-tab="cost" style="display: none; flex-direction: column; gap: 16px; padding: 16px 16px 16px 0; overflow-y: auto; padding-right: 16px;">
-                    <div class="detail-section" style="margin-bottom: 0;">
-                        <div class="detail-label">Currency</div>
-                        <select class="detail-select" onchange="updateCostField('currency', this.value)">
-                            ${COST_CURRENCIES.map(curr => 
-                                `<option value="${curr}" ${(layer.costModel?.currency || 'USD') === curr ? 'selected' : ''}>${curr}</option>`
-                            ).join('')}
-                        </select>
-                    </div>
-                    
-                    <div class="detail-section" style="margin-bottom: 0;">
-                        <div class="detail-label">Period</div>
-                        <select class="detail-select" onchange="updateCostField('period', this.value)">
-                            ${COST_PERIODS.map(period => 
-                                `<option value="${period}" ${(layer.costModel?.period || 'month') === period ? 'selected' : ''}>${period}</option>`
-                            ).join('')}
-                        </select>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                        <div class="detail-section" style="margin-bottom: 0;">
+                            <div class="detail-label">Currency</div>
+                            <select class="detail-select" onchange="updateCostField('currency', this.value)">
+                                ${COST_CURRENCIES.map(curr => 
+                                    `<option value="${curr}" ${(layer.costModel?.currency || 'USD') === curr ? 'selected' : ''}>${curr}</option>`
+                                ).join('')}
+                            </select>
+                        </div>
+                        
+                        <div class="detail-section" style="margin-bottom: 0;">
+                            <div class="detail-label">Period</div>
+                            <select class="detail-select" onchange="updateCostField('period', this.value)">
+                                ${COST_PERIODS.map(period => 
+                                    `<option value="${period}" ${(layer.costModel?.period || 'month') === period ? 'selected' : ''}>${period}</option>`
+                                ).join('')}
+                            </select>
+                        </div>
                     </div>
                     
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
@@ -968,9 +1387,45 @@ function updateCostField(field, value) {
     
     currentLayer.costModel[field] = value;
     saveProject();
-    renderLayers();
+    
+    // Update cost badge in stack view without re-rendering entire details panel
     const currentIndex = inSubstack ? selectedSubstackIndex : selectedLayerIndex;
-    selectLayer(currentIndex);
+    const layers = inSubstack && project.layers[selectedLayerIndex].substacks 
+        ? project.layers[selectedLayerIndex].substacks 
+        : project.layers;
+    
+    // Update the cost badge text for the current layer
+    const costBadgeId = `cost-badge-${currentLayer.id}`;
+    const costBadge = document.getElementById(costBadgeId);
+    if (costBadge) {
+        // Recalculate cost display
+        const components = !inSubstack ? getLayerCostComponents(currentLayer) : 
+            (currentLayer.costModel ? getLayerCostComponents({ costModel: currentLayer.costModel, substacks: [] }) : []);
+        
+        if (components.length === 0) {
+            costBadge.textContent = 'Free';
+        } else {
+            const groupedComponents = groupCostsByPeriod(components);
+            const costText = groupedComponents.map(comp => formatCostComponent(comp)).join(' | ');
+            // Replace pipes with line breaks for clean display
+            costBadge.innerHTML = costText.replace(/ \| /g, '<br>');
+        }
+        
+        // Update color coding
+        const totalCost = calculateTotalLayerCost(currentLayer);
+        let bgColor = 'rgba(16, 185, 129, 0.2)'; // green
+        let textColor = '#10b981';
+        if (totalCost > 500) {
+            bgColor = 'rgba(239, 68, 68, 0.2)'; // red
+            textColor = '#ef4444';
+        } else if (totalCost > 200) {
+            bgColor = 'rgba(245, 158, 11, 0.2)'; // yellow
+            textColor = '#f59e0b';
+        }
+        costBadge.style.background = bgColor;
+        costBadge.style.color = textColor;
+    }
+    
     updateStats();
     if (currentView === 'diagram') {
         renderDiagram();
@@ -1060,22 +1515,39 @@ function showCostTooltip(element) {
         background: #1e293b;
         border: 1px solid #334155;
         border-radius: 6px;
-        padding: 8px 12px;
+        padding: 12px 16px;
         font-size: 12px;
         color: #e2e8f0;
         z-index: 10000;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
-        max-width: 300px;
+        max-width: 90vw;
+        max-height: 80vh;
+        overflow: auto;
         pointer-events: none;
+        white-space: nowrap;
     `;
     
     document.body.appendChild(tooltip);
     console.log('[COST TOOLTIP] Tooltip element added to DOM');
     
-    // Position tooltip near the badge
+    // Position tooltip near the element, accounting for viewport
     const rect = element.getBoundingClientRect();
-    tooltip.style.left = (rect.left + rect.width / 2 - tooltip.offsetWidth / 2) + 'px';
-    tooltip.style.top = (rect.bottom + 8) + 'px';
+    let left = rect.left + rect.width / 2 - tooltip.offsetWidth / 2;
+    let top = rect.bottom + 8;
+    
+    // Adjust if tooltip goes off-screen
+    if (left + tooltip.offsetWidth > window.innerWidth) {
+        left = window.innerWidth - tooltip.offsetWidth - 8;
+    }
+    if (left < 0) {
+        left = 8;
+    }
+    if (top + tooltip.offsetHeight > window.innerHeight) {
+        top = rect.top - tooltip.offsetHeight - 8;
+    }
+    
+    tooltip.style.left = left + 'px';
+    tooltip.style.top = top + 'px';
     
     console.log(`[COST TOOLTIP] Positioned at: left=${tooltip.style.left}, top=${tooltip.style.top}`);
 }
@@ -1258,22 +1730,6 @@ document.getElementById('stack-container').addEventListener('wheel', (e) => {
 }, { passive: false });
 
 loadProject();
-
-// Toggle details panel
-function toggleDetailsPanel() {
-    const panel = document.getElementById('details-panel');
-    const toggle = document.getElementById('panel-toggle');
-    panel.classList.toggle('collapsed');
-    toggle.textContent = panel.classList.contains('collapsed') ? '▶' : '◀';
-    toggle.style.right = panel.classList.contains('collapsed') ? '0' : '500px';
-    
-    // Resize canvas when panel toggles
-    setTimeout(() => {
-        if (currentView === 'diagram' && canvas) {
-            resizeCanvas();
-        }
-    }, 300);
-}
 
 // Touch/swipe support for mobile
 let touchStartX = 0;

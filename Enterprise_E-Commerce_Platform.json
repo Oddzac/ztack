@@ -30,7 +30,15 @@
           "connections": [],
           "dependencies": [],
           "visible": true,
-          "locked": false
+          "locked": false,
+          "costModel": {
+            "currency": "USD",
+            "period": "month",
+            "fixedCost": 50,
+            "variableCost": 0.0001,
+            "variableUnit": "per 1M page views",
+            "notes": "CDN and hosting for product pages"
+          }
         },
         {
           "id": "1_2",
@@ -43,7 +51,15 @@
           "connections": [],
           "dependencies": [],
           "visible": true,
-          "locked": false
+          "locked": false,
+          "costModel": {
+            "currency": "USD",
+            "period": "month",
+            "fixedCost": 30,
+            "variableCost": 0,
+            "variableUnit": "",
+            "notes": "Client-side state management, minimal cost"
+          }
         },
         {
           "id": "1_3",
@@ -56,7 +72,15 @@
           "connections": [],
           "dependencies": [],
           "visible": true,
-          "locked": false
+          "locked": false,
+          "costModel": {
+            "currency": "USD",
+            "period": "month",
+            "fixedCost": 40,
+            "variableCost": 0,
+            "variableUnit": "",
+            "notes": "Form validation and UI rendering"
+          }
         }
       ]
     },
