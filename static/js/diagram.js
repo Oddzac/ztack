@@ -13,6 +13,7 @@ let touchDistance = 0;
 let connections = []; // Store connection metadata for hover detection
 let hoveredConnection = null; // Track currently hovered connection
 let connectionTooltip = null; // Tooltip element
+let hoveredNodeId = null; // Track currently hovered node
 
 function initDiagramView() {
     canvas = document.getElementById('diagram-canvas');
@@ -446,7 +447,7 @@ function drawCloud(x, y, width, height, isSelected, color) {
     ctx.stroke();
 }
 
-function drawConnection(x1, y1, x2, y2, isSubstackConnection = false, connectionType = 'HTTP', isHovered = false) {
+function drawConnection(x1, y1, x2, y2, isSubstackConnection = false, connectionType = 'HTTP', isHovered = false, isFaded = false) {
     // Get connection type styling
     const typeStyle = CONNECTION_TYPES[connectionType] || CONNECTION_TYPES['HTTP'];
     
@@ -454,6 +455,7 @@ function drawConnection(x1, y1, x2, y2, isSubstackConnection = false, connection
     let color = typeStyle.color;
     let lineWidth = typeStyle.width;
     let pattern = typeStyle.pattern;
+    let opacity = 1;
     
     if (isSubstackConnection) {
         // Make substack connections slightly lighter
@@ -461,10 +463,30 @@ function drawConnection(x1, y1, x2, y2, isSubstackConnection = false, connection
         lineWidth = Math.max(1, typeStyle.width - 0.5);
     }
     
+    // Fade non-hovered connections when node is hovered
+    if (isFaded) {
+        opacity = 0.2;
+    }
+    
     // Highlight on hover
     if (isHovered) {
         lineWidth += 1.5;
+        opacity = 1;
         color = typeStyle.color.replace(')', ', 1)').replace('rgba', 'rgb');
+    }
+    
+    // Apply opacity to color
+    if (opacity < 1) {
+        // Convert hex to rgba with opacity
+        if (color.startsWith('#')) {
+            const hex = color.substring(1);
+            const r = parseInt(hex.substring(0, 2), 16);
+            const g = parseInt(hex.substring(2, 4), 16);
+            const b = parseInt(hex.substring(4, 6), 16);
+            color = `rgba(${r}, ${g}, ${b}, ${opacity})`;
+        } else if (color.startsWith('rgb')) {
+            color = color.replace(')', `, ${opacity})`).replace('rgb', 'rgba');
+        }
     }
     
     ctx.strokeStyle = color;
@@ -571,6 +593,29 @@ function handleCanvasMouseMove(e) {
         const node = getNodeAtPosition(x, y);
         const foundConnections = getConnectionAtPosition(x, y);
         
+        // Check if hovered node changed
+        if (node && node.id !== hoveredNodeId) {
+            hoveredNodeId = node.id;
+            // Show all connections for this node
+            const nodeConnections = getNodeConnections(node.id);
+            if (nodeConnections && nodeConnections.length > 0) {
+                showConnectionTooltip(e, nodeConnections);
+            } else {
+                hideConnectionTooltip();
+            }
+            renderDiagram();
+        } else if (!node && hoveredNodeId) {
+            hoveredNodeId = null;
+            hideConnectionTooltip();
+            renderDiagram();
+        } else if (node && hoveredNodeId === node.id) {
+            // Update tooltip position as mouse moves over same node
+            if (connectionTooltip) {
+                connectionTooltip.style.left = (e.clientX + 10) + 'px';
+                connectionTooltip.style.top = (e.clientY + 10) + 'px';
+            }
+        }
+        
         if (foundConnections && foundConnections.length > 0) {
             canvas.style.cursor = 'pointer';
             
@@ -585,18 +630,12 @@ function handleCanvasMouseMove(e) {
             
             if (connectionsChanged) {
                 hoveredConnection = foundConnections;
-                showConnectionTooltip(e, foundConnections);
                 renderDiagram();
-            } else if (connectionTooltip) {
-                // Update tooltip position as mouse moves
-                connectionTooltip.style.left = (e.clientX + 10) + 'px';
-                connectionTooltip.style.top = (e.clientY + 10) + 'px';
             }
         } else {
             canvas.style.cursor = node ? 'pointer' : 'grab';
             if (hoveredConnection) {
                 hoveredConnection = null;
-                hideConnectionTooltip();
                 renderDiagram();
             }
         }
@@ -610,6 +649,9 @@ function handleCanvasMouseUp() {
 
 function handleCanvasMouseLeave() {
     hoveredConnection = null;
+    hoveredNodeId = null;
+    isPanning = false;
+    canvas.style.cursor = 'grab';
     hideConnectionTooltip();
     renderDiagram();
 }
@@ -745,6 +787,19 @@ function getConnectionAtPosition(x, y) {
     
     // Return array of connections, or null if none found
     return hoveredConnections.length > 0 ? hoveredConnections.map(h => h.connection) : null;
+}
+
+function getNodeConnections(nodeId) {
+    // Get all connections where this node is source or target
+    const nodeConnections = [];
+    
+    for (let conn of connections) {
+        if (conn.sourceId == nodeId || conn.targetId == nodeId) {
+            nodeConnections.push(conn);
+        }
+    }
+    
+    return nodeConnections.length > 0 ? nodeConnections : null;
 }
 
 function pointToLineDistance(px, py, x1, y1, x2, y2) {
@@ -926,7 +981,17 @@ function renderDiagramWithHover() {
                         );
                     }
                     
-                    drawConnection(x1, y1, x2, y2, isSubstackConnection || isTargetSubstack, connectionType, isHovered);
+                    // Check if connection should be faded (node hover highlighting)
+                    let isFaded = false;
+                    if (hoveredNodeId) {
+                        // Connection is faded if it doesn't involve the hovered node
+                        const connectionInvolvesHoveredNode = 
+                            connObj.sourceId == hoveredNodeId || 
+                            connObj.targetId == hoveredNodeId;
+                        isFaded = !connectionInvolvesHoveredNode;
+                    }
+                    
+                    drawConnection(x1, y1, x2, y2, isSubstackConnection || isTargetSubstack, connectionType, isHovered, isFaded);
                 }
             });
         }

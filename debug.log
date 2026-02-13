@@ -1,0 +1,40 @@
+app.js:300 [COST BADGE] Web Application: Looking for badge with ID "cost-badge-1"
+app.js:301 [COST BADGE] Web Application: Badge found: YES
+app.js:304 [COST BADGE] Web Application: Badge element details: {tagName: 'SPAN', id: 'cost-badge-1', className: '', textContent: 'Free', offsetWidth: 0, …}
+app.js:300 [COST BADGE] Mobile App: Looking for badge with ID "cost-badge-2"
+app.js:301 [COST BADGE] Mobile App: Badge found: YES
+app.js:304 [COST BADGE] Mobile App: Badge element details: {tagName: 'SPAN', id: 'cost-badge-2', className: '', textContent: 'Free', offsetWidth: 0, …}
+app.js:300 [COST BADGE] API Gateway: Looking for badge with ID "cost-badge-3"
+app.js:301 [COST BADGE] API Gateway: Badge found: YES
+app.js:304 [COST BADGE] API Gateway: Badge element details: {tagName: 'SPAN', id: 'cost-badge-3', className: '', textContent: 'Free', offsetWidth: 0, …}
+app.js:300 [COST BADGE] Product Service: Looking for badge with ID "cost-badge-4"
+app.js:301 [COST BADGE] Product Service: Badge found: YES
+app.js:304 [COST BADGE] Product Service: Badge element details: {tagName: 'SPAN', id: 'cost-badge-4', className: '', textContent: 'Free', offsetWidth: 0, …}
+app.js:300 [COST BADGE] Order Service: Looking for badge with ID "cost-badge-5"
+app.js:301 [COST BADGE] Order Service: Badge found: YES
+app.js:304 [COST BADGE] Order Service: Badge element details: {tagName: 'SPAN', id: 'cost-badge-5', className: '', textContent: 'Free', offsetWidth: 0, …}
+app.js:300 [COST BADGE] Payment Service: Looking for badge with ID "cost-badge-6"
+app.js:301 [COST BADGE] Payment Service: Badge found: YES
+app.js:304 [COST BADGE] Payment Service: Badge element details: {tagName: 'SPAN', id: 'cost-badge-6', className: '', textContent: '$15/mo | $100/yr', offsetWidth: 0, …}
+app.js:318 [COST BADGE] Payment Service: Found 3 cost components
+app.js:323 [COST BADGE] Payment Service: Total cost = $115, Grouped components = 2
+app.js:338 [COST BADGE] Payment Service: Applied color - bg: rgba(16, 185, 129, 0.2), text: #10b981
+app.js:378 [COST BADGE] Payment Service: Tooltip content length = 684 chars
+app.js:379 [COST BADGE] Payment Service: Badge element: span#cost-badge-6
+app.js:380 [COST BADGE] Payment Service: Badge parent: div
+app.js:381 [COST BADGE] Payment Service: Attaching event listeners
+app.js:395 [COST BADGE] Payment Service: Event listeners attached
+app.js:396 [COST BADGE] Payment Service: Badge listeners: N/A
+app.js:397 [COST BADGE] Payment Service: Setup complete
+app.js:300 [COST BADGE] User Service: Looking for badge with ID "cost-badge-7"
+app.js:301 [COST BADGE] User Service: Badge found: YES
+app.js:304 [COST BADGE] User Service: Badge element details: {tagName: 'SPAN', id: 'cost-badge-7', className: '', textContent: 'Free', offsetWidth: 0, …}
+app.js:300 [COST BADGE] Notification Service: Looking for badge with ID "cost-badge-8"
+app.js:301 [COST BADGE] Notification Service: Badge found: YES
+app.js:304 [COST BADGE] Notification Service: Badge element details: {tagName: 'SPAN', id: 'cost-badge-8', className: '', textContent: 'Free', offsetWidth: 0, …}
+app.js:300 [COST BADGE] Message Queue: Looking for badge with ID "cost-badge-11"
+app.js:301 [COST BADGE] Message Queue: Badge found: YES
+app.js:304 [COST BADGE] Message Queue: Badge element details: {tagName: 'SPAN', id: 'cost-badge-11', className: '', textContent: 'Free', offsetWidth: 0, …}
+app.js:300 [COST BADGE] Infrastructure: Looking for badge with ID "cost-badge-12"
+app.js:301 [COST BADGE] Infrastructure: Badge found: YES
+app.js:304 [COST BADGE] Infrastructure: Badge element details: {tagName: 'SPAN', id: 'cost-badge-12', className: '', textContent: 'Free', offsetWidth: 0, …}

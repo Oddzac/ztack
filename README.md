@@ -194,7 +194,6 @@ npx http-server
 - [x] Hover over connection to see details
 - [x] Zoom in/out controls
 - [x] Auto-layout (organize nodes automatically)
-~~- [ ] Grid snap for precise positioning~~
 
 ### Phase 3: Visual Enhancements (Planned)
 - [x] Visual grouping boxes around substacks in diagram

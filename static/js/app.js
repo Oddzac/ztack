@@ -16,68 +16,27 @@ function loadProject() {
 }
 
 function saveProject() {
-    console.log('>>> SAVING PROJECT TO LOCALSTORAGE <<<');
-    console.log('Project name:', project.name);
-    console.log('Total layers:', project.layers.length);
-    
-    // Log all connections in the project
-    project.layers.forEach((layer, idx) => {
-        if (layer.connections && layer.connections.length > 0) {
-            console.log(`  Layer ${idx} (${layer.name}): ${layer.connections.length} connections`);
-            layer.connections.forEach(conn => {
-                const type = typeof conn === 'object' ? conn.type : 'HTTP';
-                const targetId = typeof conn === 'object' ? conn.targetId : conn;
-                console.log(`    -> Target ${targetId}, Type: ${type}`);
-            });
-        }
-        
-        // Log substack connections
-        if (layer.substacks && layer.substacks.length > 0) {
-            layer.substacks.forEach((sub, subIdx) => {
-                if (sub.connections && sub.connections.length > 0) {
-                    console.log(`  Substack ${subIdx} (${sub.name}): ${sub.connections.length} connections`);
-                    sub.connections.forEach(conn => {
-                        const type = typeof conn === 'object' ? conn.type : 'HTTP';
-                        const targetId = typeof conn === 'object' ? conn.targetId : conn;
-                        console.log(`    -> Target ${targetId}, Type: ${type}`);
-                    });
-                }
-            });
-        }
-    });
-    
     localStorage.setItem('ztack_project', JSON.stringify(project));
-    console.log('>>> PROJECT SAVED <<<\n');
 }
 
-// Debug helper function - call from console
-function debugProject() {
-    console.log('\n========== PROJECT DEBUG ==========');
-    console.log('Current View:', currentView);
-    console.log('Selected Layer Index:', selectedLayerIndex);
-    console.log('In Substack:', inSubstack);
-    if (inSubstack) {
-        console.log('Selected Substack Index:', selectedSubstackIndex);
-    }
-    
-    const currentLayer = inSubstack 
-        ? project.layers[selectedLayerIndex].substacks[selectedSubstackIndex]
-        : project.layers[selectedLayerIndex];
-    
-    console.log('\nCurrent Layer/Substack:');
-    console.log('  Name:', currentLayer.name);
-    console.log('  ID:', currentLayer.id);
-    console.log('  Connections:', JSON.parse(JSON.stringify(currentLayer.connections)));
-    
-    console.log('\nAll Project Connections:');
+// Debug helper function - call from console to log cost badge rendering
+function debugCostBadges() {
+    console.log('\n========== COST BADGE DEBUG ==========');
     project.layers.forEach((layer, idx) => {
-        if (layer.connections && layer.connections.length > 0) {
-            console.log(`Layer ${idx} (${layer.name}):`, JSON.parse(JSON.stringify(layer.connections)));
-        }
-        if (layer.substacks) {
+        const components = getLayerCostComponents(layer);
+        const totalCost = calculateTotalLayerCost(layer);
+        console.log(`\nLayer ${idx}: ${layer.name}`);
+        console.log(`  Total Cost: $${totalCost}`);
+        console.log(`  Cost Components: ${components.length}`);
+        components.forEach(comp => {
+            console.log(`    - ${comp.type}: ${comp.currency}${comp.amount} ${comp.unit || comp.period}`);
+        });
+        
+        if (layer.substacks && layer.substacks.length > 0) {
+            console.log(`  Substacks: ${layer.substacks.length}`);
             layer.substacks.forEach((sub, subIdx) => {
-                if (sub.connections && sub.connections.length > 0) {
-                    console.log(`  Substack ${subIdx} (${sub.name}):`, JSON.parse(JSON.stringify(sub.connections)));
+                if (sub.costModel && (sub.costModel.fixedCost > 0 || sub.costModel.variableCost > 0)) {
+                    console.log(`    [${subIdx}] ${sub.name}: $${sub.costModel.fixedCost}${sub.costModel.period === 'month' ? '/mo' : ''}`);
                 }
             });
         }
@@ -133,6 +92,122 @@ function redo() {
     }
 }
 
+function calculateTotalLayerCost(layer) {
+    // Calculate total cost including substacks
+    let totalCost = layer.costModel?.fixedCost || 0;
+    
+    // Add costs from all substacks
+    if (layer.substacks && layer.substacks.length > 0) {
+        layer.substacks.forEach(substack => {
+            totalCost += substack.costModel?.fixedCost || 0;
+        });
+    }
+    
+    return totalCost;
+}
+
+function getLayerCostComponents(layer) {
+    // Collect all cost components (layer + substacks) with their periods
+    const components = [];
+    
+    // Add layer's own costs
+    if (layer.costModel) {
+        if (layer.costModel.fixedCost > 0) {
+            components.push({
+                amount: layer.costModel.fixedCost,
+                period: layer.costModel.period,
+                currency: layer.costModel.currency,
+                type: 'fixed'
+            });
+        }
+        if (layer.costModel.variableCost > 0) {
+            components.push({
+                amount: layer.costModel.variableCost,
+                period: layer.costModel.period,
+                currency: layer.costModel.currency,
+                unit: layer.costModel.variableUnit,
+                type: 'variable'
+            });
+        }
+    }
+    
+    // Add substack costs
+    if (layer.substacks && layer.substacks.length > 0) {
+        layer.substacks.forEach(substack => {
+            if (substack.costModel) {
+                if (substack.costModel.fixedCost > 0) {
+                    components.push({
+                        amount: substack.costModel.fixedCost,
+                        period: substack.costModel.period,
+                        currency: substack.costModel.currency,
+                        type: 'fixed'
+                    });
+                }
+                if (substack.costModel.variableCost > 0) {
+                    components.push({
+                        amount: substack.costModel.variableCost,
+                        period: substack.costModel.period,
+                        currency: substack.costModel.currency,
+                        unit: substack.costModel.variableUnit,
+                        type: 'variable'
+                    });
+                }
+            }
+        });
+    }
+    
+    return components;
+}
+
+function groupCostsByPeriod(components) {
+    // Group costs by period and type, aggregating amounts
+    const grouped = {};
+    
+    components.forEach(comp => {
+        // Create key from period and type (variable costs also include unit)
+        const key = comp.type === 'variable' && comp.unit 
+            ? `${comp.period}|${comp.type}|${comp.unit}`
+            : `${comp.period}|${comp.type}`;
+        
+        if (!grouped[key]) {
+            grouped[key] = {
+                amount: 0,
+                period: comp.period,
+                currency: comp.currency,
+                type: comp.type,
+                unit: comp.unit
+            };
+        }
+        
+        grouped[key].amount += comp.amount;
+    });
+    
+    // Convert to array and sort by period (fixed first, then by period name)
+    return Object.values(grouped).sort((a, b) => {
+        if (a.type !== b.type) return a.type === 'fixed' ? -1 : 1;
+        return a.period.localeCompare(b.period);
+    });
+}
+
+function formatCostComponent(component) {
+    const currency = component.currency || 'USD';
+    const symbol = currency === 'USD' ? '$' : currency === 'EUR' ? '€' : currency === 'GBP' ? '£' : currency;
+    
+    let periodLabel = '';
+    if (component.period === 'month') periodLabel = '/mo';
+    else if (component.period === 'year') periodLabel = '/yr';
+    else if (component.period === 'per-request') periodLabel = '/req';
+    else if (component.period === 'per-gb') periodLabel = '/GB';
+    else if (component.period === 'per-hour') periodLabel = '/hr';
+    else periodLabel = `/${component.period}`;
+    
+    if (component.type === 'variable' && component.unit) {
+        return `${symbol}${component.amount} ${component.unit}`;
+    }
+    
+    return `${symbol}${component.amount}${periodLabel}`;
+}
+
 function renderLayers() {
     const container = document.getElementById('stack-container');
     container.innerHTML = '';
@@ -141,6 +216,25 @@ function renderLayers() {
         ? project.layers[selectedLayerIndex].substacks 
         : project.layers;
     const currentIndex = inSubstack ? selectedSubstackIndex : selectedLayerIndex;
+    
+    // Helper function to format cost display
+    const formatCostBadge = (layer) => {
+        // Get all cost components for this layer and its substacks
+        const components = !inSubstack ? getLayerCostComponents(layer) : 
+            (layer.costModel ? getLayerCostComponents({ costModel: layer.costModel, substacks: [] }) : []);
+        
+        if (components.length === 0) {
+            return 'Free';
+        }
+        
+        // Group costs by period to avoid clutter
+        const groupedComponents = groupCostsByPeriod(components);
+        
+        // Format all components with pipe delimiter
+        const costText = groupedComponents.map(comp => formatCostComponent(comp)).join(' | ');
+        
+        return costText;
+    };
     
     // If in substack, render parent layer on the left
     if (inSubstack) {
@@ -200,6 +294,91 @@ function renderLayers() {
         `;
         
         card.appendChild(label);
+        
+        // Create cost badge as a separate element with pointer-events: auto
+        // Fades in/out with label, no text wrapping, expands horizontally
+        const costBadge = document.createElement('span');
+        costBadge.id = `cost-badge-${layer.id}`;
+        costBadge.style.cssText = `
+            position: absolute;
+            left: 250px;
+            top: 85px;
+            font-size: 11px;
+            background: rgba(16, 185, 129, 0.2);
+            color: #10b981;
+            padding: 2px 6px;
+            border-radius: 3px;
+            pointer-events: auto;
+            cursor: help;
+            white-space: nowrap;
+            opacity: ${index === currentIndex ? '1' : '0'};
+            transition: opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        `;
+        costBadge.textContent = formatCostBadge(layer);
+        
+        // Attach tooltip event listeners to cost badge if it has substacks
+        if (!inSubstack && layer.substacks && layer.substacks.length > 0) {
+            const components = getLayerCostComponents(layer);
+            if (components.length > 0) {
+                const groupedComponents = groupCostsByPeriod(components);
+                const totalCost = calculateTotalLayerCost(layer);
+                
+                // Apply color coding
+                let bgColor = 'rgba(16, 185, 129, 0.2)'; // green
+                let textColor = '#10b981';
+                if (totalCost > 500) {
+                    bgColor = 'rgba(239, 68, 68, 0.2)'; // red
+                    textColor = '#ef4444';
+                } else if (totalCost > 200) {
+                    bgColor = 'rgba(245, 158, 11, 0.2)'; // yellow
+                    textColor = '#f59e0b';
+                }
+                costBadge.style.background = bgColor;
+                costBadge.style.color = textColor;
+                
+                // Build tooltip content - only line breaks between items
+                let tooltipContent = '<div style="font-weight: 500; margin-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,0.2); padding-bottom: 6px;">Cost Breakdown:</div>';
+                
+                // Layer's own costs
+                if (layer.costModel && (layer.costModel.fixedCost > 0 || layer.costModel.variableCost > 0)) {
+                    tooltipContent += `<div style="margin-bottom: 4px;"><strong>${layer.name}</strong>`;
+                    if (layer.costModel.fixedCost > 0) {
+                        const symbol = layer.costModel.currency === 'USD' ? '$' : layer.costModel.currency === 'EUR' ? '€' : layer.costModel.currency === 'GBP' ? '£' : layer.costModel.currency;
+                        const period = layer.costModel.period === 'month' ? '/mo' : layer.costModel.period === 'year' ? '/yr' : `/${layer.costModel.period}`;
+                        tooltipContent += `<div style="margin-left: 12px; color: #cbd5e1; font-size: 12px; white-space: nowrap;">Fixed: ${symbol}${layer.costModel.fixedCost}${period}</div>`;
+                    }
+                    if (layer.costModel.variableCost > 0) {
+                        const symbol = layer.costModel.currency === 'USD' ? '$' : layer.costModel.currency === 'EUR' ? '€' : layer.costModel.currency === 'GBP' ? '£' : layer.costModel.currency;
+                        tooltipContent += `<div style="margin-left: 12px; color: #cbd5e1; font-size: 12px; white-space: nowrap;">Variable: ${symbol}${layer.costModel.variableCost} ${layer.costModel.variableUnit}</div>`;
+                    }
+                    tooltipContent += '</div>';
+                }
+                
+                // Substack costs
+                layer.substacks.forEach(substack => {
+                    if (substack.costModel && (substack.costModel.fixedCost > 0 || substack.costModel.variableCost > 0)) {
+                        tooltipContent += `<div style="margin-bottom: 4px;"><strong style="color: #e2e8f0;">${substack.name}</strong>`;
+                        if (substack.costModel.fixedCost > 0) {
+                            const symbol = substack.costModel.currency === 'USD' ? '$' : substack.costModel.currency === 'EUR' ? '€' : substack.costModel.currency === 'GBP' ? '£' : substack.costModel.currency;
+                            const period = substack.costModel.period === 'month' ? '/mo' : substack.costModel.period === 'year' ? '/yr' : `/${substack.costModel.period}`;
+                            tooltipContent += `<div style="margin-left: 12px; color: #cbd5e1; font-size: 12px; white-space: nowrap;">Fixed: ${symbol}${substack.costModel.fixedCost}${period}</div>`;
+                        }
+                        if (substack.costModel.variableCost > 0) {
+                            const symbol = substack.costModel.currency === 'USD' ? '$' : substack.costModel.currency === 'EUR' ? '€' : substack.costModel.currency === 'GBP' ? '£' : substack.costModel.currency;
+                            tooltipContent += `<div style="margin-left: 12px; color: #cbd5e1; font-size: 12px; white-space: nowrap;">Variable: ${symbol}${substack.costModel.variableCost} ${substack.costModel.variableUnit}</div>`;
+                        }
+                        tooltipContent += '</div>';
+                    }
+                });
+                
+                costBadge.setAttribute('data-tooltip-content', tooltipContent);
+                
+                costBadge.addEventListener('mouseenter', function() { showCostTooltip(this); });
+                costBadge.addEventListener('mouseleave', function() { hideCostTooltip(); });
+            }
+        }
+        
+        card.appendChild(costBadge);
         card.addEventListener('click', () => selectLayer(index));
         container.appendChild(card);
     });
@@ -234,6 +413,12 @@ function selectLayer(index, skipDetailsUpdate = false) {
                 label.classList.toggle('selected', i === index);
             }
             
+            // Toggle badge opacity to match label fade
+            const badge = card.querySelector('[id^="cost-badge-"]');
+            if (badge) {
+                badge.style.opacity = i === index ? '1' : '0';
+            }
+            
             const yOffset = (i - index) * CARD_SPACING;
             const zOffset = (layers.length - i - 1) * 20;
             
@@ -253,6 +438,12 @@ function selectLayer(index, skipDetailsUpdate = false) {
             const label = card.querySelector('.layer-label');
             if (label) {
                 label.classList.toggle('selected', i === index);
+            }
+            
+            // Toggle badge opacity to match label fade
+            const badge = card.querySelector('[id^="cost-badge-"]');
+            if (badge) {
+                badge.style.opacity = i === index ? '1' : '0';
             }
             
             const anglePerCard = (Math.PI * 2) / layers.length;
@@ -343,6 +534,9 @@ function renderLayerDetails(layer) {
                 </button>
                 <button class="detail-tab" data-tab="connections" onclick="switchDetailTab('connections')">
                     Connections <span style="font-size: 10px; margin-left: 4px; opacity: 0.7;">${normalizedConnections.length}</span>
+                </button>
+                <button class="detail-tab" data-tab="cost" onclick="switchDetailTab('cost')">
+                    Cost
                 </button>
                 ${!inSubstack ? `
                     <button class="detail-tab" data-tab="substacks" onclick="switchDetailTab('substacks')">
@@ -447,6 +641,55 @@ function renderLayerDetails(layer) {
                                 </div>
                             `}).join('')}
                         </div>
+                    </div>
+                </div>
+                
+                <!-- Cost Tab -->
+                <div class="detail-tab-content" data-tab="cost" style="display: none; flex-direction: column; gap: 16px; padding: 16px 16px 16px 0; overflow-y: auto; padding-right: 16px;">
+                    <div class="detail-section" style="margin-bottom: 0;">
+                        <div class="detail-label">Currency</div>
+                        <select class="detail-select" onchange="updateCostField('currency', this.value)">
+                            ${COST_CURRENCIES.map(curr => 
+                                `<option value="${curr}" ${(layer.costModel?.currency || 'USD') === curr ? 'selected' : ''}>${curr}</option>`
+                            ).join('')}
+                        </select>
+                    </div>
+                    
+                    <div class="detail-section" style="margin-bottom: 0;">
+                        <div class="detail-label">Period</div>
+                        <select class="detail-select" onchange="updateCostField('period', this.value)">
+                            ${COST_PERIODS.map(period => 
+                                `<option value="${period}" ${(layer.costModel?.period || 'month') === period ? 'selected' : ''}>${period}</option>`
+                            ).join('')}
+                        </select>
+                    </div>
+                    
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                        <div class="detail-section" style="margin-bottom: 0;">
+                            <div class="detail-label">Fixed Cost</div>
+                            <input type="number" class="detail-input" step="0.01" value="${layer.costModel?.fixedCost || 0}" 
+                                   onchange="updateCostField('fixedCost', parseFloat(this.value))">
+                        </div>
+                        
+                        <div class="detail-section" style="margin-bottom: 0;">
+                            <div class="detail-label">Variable Cost</div>
+                            <input type="number" class="detail-input" step="0.00001" value="${layer.costModel?.variableCost || 0}" 
+                                   onchange="updateCostField('variableCost', parseFloat(this.value))">
+                        </div>
+                    </div>
+                    
+                    <div class="detail-section" style="margin-bottom: 0;">
+                        <div class="detail-label">Variable Unit</div>
+                        <input type="text" class="detail-input" value="${layer.costModel?.variableUnit || ''}" 
+                               placeholder="e.g., per 1M requests, per GB, per hour"
+                               onchange="updateCostField('variableUnit', this.value)">
+                    </div>
+                    
+                    <div class="detail-section" style="margin-bottom: 0;">
+                        <div class="detail-label">Notes</div>
+                        <textarea class="detail-textarea" style="min-height: 80px;"
+                                  placeholder="Optional documentation about costs"
+                                  onchange="updateCostField('notes', this.value)">${layer.costModel?.notes || ''}</textarea>
                     </div>
                 </div>
                 
@@ -711,6 +954,29 @@ function updateLayerField(field, value) {
     }
 }
 
+function updateCostField(field, value) {
+    saveState();
+    
+    const currentLayer = inSubstack 
+        ? project.layers[selectedLayerIndex].substacks[selectedSubstackIndex]
+        : project.layers[selectedLayerIndex];
+    
+    // Initialize costModel if it doesn't exist
+    if (!currentLayer.costModel) {
+        currentLayer.costModel = JSON.parse(JSON.stringify(DEFAULT_COST_MODEL));
+    }
+    
+    currentLayer.costModel[field] = value;
+    saveProject();
+    renderLayers();
+    const currentIndex = inSubstack ? selectedSubstackIndex : selectedLayerIndex;
+    selectLayer(currentIndex);
+    updateStats();
+    if (currentView === 'diagram') {
+        renderDiagram();
+    }
+}
+
 function moveLayer(direction) {
     const layers = inSubstack && project.layers[selectedLayerIndex].substacks 
         ? project.layers[selectedLayerIndex].substacks 
@@ -771,6 +1037,55 @@ function updateStats() {
         project.layers.filter(l => l.status === 'Active').length;
     document.getElementById('inactive-layers').textContent = 
         project.layers.filter(l => l.status === 'Inactive' || l.status === 'Deprecated').length;
+}
+
+function showCostTooltip(element) {
+    // Remove any existing tooltip
+    hideCostTooltip();
+    
+    const tooltipContent = element.getAttribute('data-tooltip-content');
+    if (!tooltipContent) {
+        console.log('[COST TOOLTIP] No tooltip content found');
+        return;
+    }
+    
+    console.log('[COST TOOLTIP] Creating tooltip element');
+    
+    // Create tooltip element
+    const tooltip = document.createElement('div');
+    tooltip.id = 'cost-tooltip';
+    tooltip.innerHTML = tooltipContent;
+    tooltip.style.cssText = `
+        position: fixed;
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 6px;
+        padding: 8px 12px;
+        font-size: 12px;
+        color: #e2e8f0;
+        z-index: 10000;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+        max-width: 300px;
+        pointer-events: none;
+    `;
+    
+    document.body.appendChild(tooltip);
+    console.log('[COST TOOLTIP] Tooltip element added to DOM');
+    
+    // Position tooltip near the badge
+    const rect = element.getBoundingClientRect();
+    tooltip.style.left = (rect.left + rect.width / 2 - tooltip.offsetWidth / 2) + 'px';
+    tooltip.style.top = (rect.bottom + 8) + 'px';
+    
+    console.log(`[COST TOOLTIP] Positioned at: left=${tooltip.style.left}, top=${tooltip.style.top}`);
+}
+
+function hideCostTooltip() {
+    const tooltip = document.getElementById('cost-tooltip');
+    if (tooltip) {
+        console.log('[COST TOOLTIP] Removing tooltip element');
+        tooltip.remove();
+    }
 }
 
 function exportProject() {
