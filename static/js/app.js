@@ -1020,6 +1020,21 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     
+    // Handle submenu triggers (Templates)
+    document.querySelectorAll('.submenu-trigger').forEach(trigger => {
+        const submenu = trigger.querySelector('.submenu');
+        
+        if (submenu) {
+            trigger.addEventListener('mouseenter', () => {
+                submenu.style.display = 'block';
+            });
+            
+            trigger.addEventListener('mouseleave', () => {
+                submenu.style.display = 'none';
+            });
+        }
+    });
+    
     document.addEventListener('click', () => {
         document.querySelectorAll('.dropdown-menu').forEach(d => d.style.display = 'none');
     });

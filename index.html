@@ -16,10 +16,16 @@
                     <div class="dropdown-item" onclick="importProject()" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">Open</div>
                     <div class="dropdown-item" onclick="exportProject()" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">Save</div>
                     <div style="border-top: 1px solid #334155; margin: 4px 0;"></div>
-                    <div class="dropdown-item" onclick="loadTemplate('threeLayer')" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">Template: 3-Tier</div>
-                    <div class="dropdown-item" onclick="loadTemplate('microservices')" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">Template: Microservices</div>
-                    <div class="dropdown-item" onclick="loadTemplate('serverless')" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">Template: Serverless</div>
-                    <div class="dropdown-item" onclick="loadTemplate('enterprise')" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">Template: Enterprise E-Commerce</div>
+                    <div class="dropdown-item submenu-trigger" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s; display: flex; justify-content: space-between; align-items: center; position: relative;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">
+                        <span>Templates</span>
+                        <span style="font-size: 10px; margin-left: 8px;">▶</span>
+                        <div class="submenu" style="display: none; position: absolute; top: 0; left: 100%; background: #0f172a; border: 1px solid #334155; border-radius: 4px; min-width: 180px; margin-left: 4px;">
+                            <div class="dropdown-item" onclick="loadTemplate('threeLayer')" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">3-Tier Architecture</div>
+                            <div class="dropdown-item" onclick="loadTemplate('microservices')" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">Microservices</div>
+                            <div class="dropdown-item" onclick="loadTemplate('serverless')" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">Serverless</div>
+                            <div class="dropdown-item" onclick="loadTemplate('enterprise')" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">E-Commerce</div>
+                        </div>
+                    </div>
                 </div>
             </div>
             <div class="menu-item" style="position: relative;">
