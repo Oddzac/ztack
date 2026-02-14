@@ -1137,6 +1137,126 @@ function getAllLayers() {
     return layers;
 }
 
+// Generate intelligent, semantic names for flows based on layers involved
+function generateFlowName(path) {
+    if (!path.layersInvolved || path.layersInvolved.length === 0) {
+        return 'Unknown Flow';
+    }
+    
+    const layers = path.layersInvolved.map(id => {
+        const layer = getAllLayers().find(l => l.id === id);
+        return layer ? { id, name: layer.name, type: layer.type } : null;
+    }).filter(l => l !== null);
+    
+    if (layers.length === 0) return 'Unknown Flow';
+    
+    // Single layer - just the layer name
+    if (layers.length === 1) {
+        return layers[0].name;
+    }
+    
+    // Infer function from layer sequence
+    const layerTypes = layers.map(l => l.type);
+    const layerNames = layers.map(l => l.name);
+    
+    // Pattern: Frontend → API → Backend → Database
+    if (layerTypes[0] === 'Frontend' && layerTypes[layerTypes.length - 1] === 'Database') {
+        const backendService = layers.find(l => l.type === 'Backend');
+        if (backendService) {
+            return `${layerNames[0]} → ${backendService.name}`;
+        }
+    }
+    
+    // Pattern: Frontend → API → Backend (no database)
+    if (layerTypes[0] === 'Frontend' && layerTypes[layerTypes.length - 1] === 'Backend') {
+        return `${layerNames[0]} → ${layerNames[layerNames.length - 1]}`;
+    }
+    
+    // Pattern: Frontend → API → Notification
+    if (layerNames[layerNames.length - 1].includes('Notification')) {
+        return `${layerNames[0]} Notifications`;
+    }
+    
+    // Pattern: Frontend → API → Payment
+    if (layerNames[layerNames.length - 1].includes('Payment')) {
+        return `${layerNames[0]} Checkout`;
+    }
+    
+    // Pattern: Frontend → API → User
+    if (layerNames[layerNames.length - 1].includes('User')) {
+        return `${layerNames[0]} Auth`;
+    }
+    
+    // Pattern: Frontend → API → Product
+    if (layerNames[layerNames.length - 1].includes('Product')) {
+        return `${layerNames[0]} Catalog`;
+    }
+    
+    // Pattern: Backend → Database
+    if (layerTypes[0] === 'Backend' && layerTypes[layerTypes.length - 1] === 'Database') {
+        return `${layerNames[0]} Storage`;
+    }
+    
+    // Pattern: Backend → Message Queue
+    if (layerNames[layerNames.length - 1].includes('Message') || layerNames[layerNames.length - 1].includes('Queue')) {
+        return `${layerNames[0]} Events`;
+    }
+    
+    // Pattern: Service → Service → Database
+    if (layerTypes[layerTypes.length - 1] === 'Database') {
+        const service = layers[layers.length - 2];
+        return `${service.name} Data`;
+    }
+    
+    // Pattern: Service → Service → Message Queue
+    if (layerNames[layerNames.length - 1].includes('Message') || layerNames[layerNames.length - 1].includes('Queue')) {
+        const service = layers[layers.length - 2];
+        return `${service.name} Async`;
+    }
+    
+    // Fallback: use first and last layer
+    return `${layerNames[0]} → ${layerNames[layerNames.length - 1]}`;
+}
+
+// Generate intelligent description based on flow function
+function generateFlowDescription(path) {
+    if (!path.layersInvolved || path.layersInvolved.length === 0) {
+        return '';
+    }
+    
+    const layers = path.layersInvolved.map(id => {
+        const layer = getAllLayers().find(l => l.id === id);
+        return layer ? { id, name: layer.name, type: layer.type } : null;
+    }).filter(l => l !== null);
+    
+    if (layers.length === 0) return '';
+    
+    const layerNames = layers.map(l => l.name);
+    const layerTypes = layers.map(l => l.type);
+    
+    // Infer description from pattern
+    if (layerNames[layerNames.length - 1].includes('Notification')) {
+        return 'Send notifications to users';
+    }
+    if (layerNames[layerNames.length - 1].includes('Payment')) {
+        return 'Process payments and transactions';
+    }
+    if (layerNames[layerNames.length - 1].includes('User')) {
+        return 'Manage user authentication and profiles';
+    }
+    if (layerNames[layerNames.length - 1].includes('Product')) {
+        return 'Browse and search products';
+    }
+    if (layerTypes[layerTypes.length - 1] === 'Database') {
+        return `Store and retrieve ${layerNames[layerNames.length - 1].toLowerCase()}`;
+    }
+    if (layerNames[layerNames.length - 1].includes('Message') || layerNames[layerNames.length - 1].includes('Queue')) {
+        return 'Asynchronous event processing';
+    }
+    
+    return '';
+}
+
 function getAvailableConnectionTargets(layer) {
     const targets = [];
     
@@ -1913,6 +2033,23 @@ function renderActionsView() {
         gap: 8px;
     `;
     
+    const helpBtn = document.createElement('button');
+    helpBtn.textContent = '🛈';
+    helpBtn.style.cssText = `
+        background: #2b4a76ff;
+        color: white;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 500;
+        transition: all 0.2s;
+    `;
+    helpBtn.onmouseover = () => helpBtn.style.background = '#466da4ff';
+    helpBtn.onmouseout = () => helpBtn.style.background = '#2b4a76ff';
+    helpBtn.onclick = () => showBestPracticesModal();
+    
     const importBtn = document.createElement('button');
     importBtn.textContent = '⚡ Import from Connections';
     importBtn.style.cssText = `
@@ -1947,6 +2084,7 @@ function renderActionsView() {
     addBtn.onmouseout = () => addBtn.style.background = '#3b82f6';
     addBtn.onclick = () => createNewAction();
     
+    buttonGroup.appendChild(helpBtn);
     buttonGroup.appendChild(importBtn);
     buttonGroup.appendChild(addBtn);
     header.appendChild(title);
@@ -2127,6 +2265,9 @@ function createActionCard(path) {
         padding: 14px 16px;
         cursor: pointer;
         transition: all 0.2s;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
     `;
     actionCard.onmouseover = () => {
         if (!isSelected) {
@@ -2141,13 +2282,27 @@ function createActionCard(path) {
         }
     };
     
-    // Action name and description
+    // Helper to get layer type color
+    function getLayerTypeColor(layerId) {
+        const layer = getAllLayers().find(l => l.id === layerId);
+        if (!layer) return '#64748b';
+        
+        const typeColors = {
+            'Frontend': '#06b6d4',   // cyan
+            'API': '#8b5cf6',        // purple
+            'Backend': '#10b981',    // emerald
+            'Database': '#f59e0b',   // amber
+            'DevOps': '#ef4444'      // red
+        };
+        return typeColors[layer.type] || '#64748b';
+    }
+    
+    // Header with title and delete button
     const nameDiv = document.createElement('div');
     nameDiv.style.cssText = `
         display: flex;
         justify-content: space-between;
         align-items: flex-start;
-        margin-bottom: 10px;
         gap: 12px;
     `;
     
@@ -2155,9 +2310,11 @@ function createActionCard(path) {
     nameSpan.style.cssText = `
         flex: 1;
     `;
+    const displayName = generateFlowName(path);
+    const displayDesc = generateFlowDescription(path) || path.description;
     nameSpan.innerHTML = `
-        <div style="color: #e2e8f0; font-weight: 600; font-size: 13px; letter-spacing: 0.2px;">${path.name}</div>
-        <div style="color: #94a3b8; font-size: 12px; margin-top: 4px; line-height: 1.4;">${path.description || '<em style="color: #64748b;">No description</em>'}</div>
+        <div style="color: #e2e8f0; font-weight: 600; font-size: 13px; letter-spacing: 0.2px; margin-bottom: 4px;">${displayName}</div>
+        <div style="color: #94a3b8; font-size: 11px; line-height: 1.4;">${displayDesc || '<em style="color: #64748b;">No description</em>'}</div>
     `;
     
     const deleteBtn = document.createElement('button');
@@ -2166,14 +2323,15 @@ function createActionCard(path) {
         background: #ef4444;
         color: white;
         border: none;
-        width: 28px;
-        height: 28px;
+        width: 24px;
+        height: 24px;
         border-radius: 4px;
         cursor: pointer;
-        font-size: 12px;
+        font-size: 11px;
         font-weight: 600;
         transition: all 0.2s;
         flex-shrink: 0;
+        padding: 0;
     `;
     deleteBtn.onmouseover = () => deleteBtn.style.background = '#dc2626';
     deleteBtn.onmouseout = () => deleteBtn.style.background = '#ef4444';
@@ -2185,30 +2343,76 @@ function createActionCard(path) {
     nameDiv.appendChild(nameSpan);
     nameDiv.appendChild(deleteBtn);
     
-    // Path visualization
-    const pathDiv = document.createElement('div');
-    pathDiv.style.cssText = `
-        background: rgba(15, 23, 42, 0.6);
-        border: 1px solid #334155;
-        border-radius: 6px;
-        padding: 10px 12px;
-        font-size: 12px;
-        color: #cbd5e1;
-        line-height: 1.5;
+    // Layer flow visualization with color coding
+    const flowDiv = document.createElement('div');
+    flowDiv.style.cssText = `
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
     `;
     
     const pathLayers = path.layersInvolved.map(layerId => {
         const layer = getAllLayers().find(l => l.id === layerId);
-        return layer ? layer.name : `Layer ${layerId}`;
+        return { id: layerId, name: layer ? layer.name : `Layer ${layerId}`, type: layer ? layer.type : 'Unknown' };
     });
     
-    pathDiv.innerHTML = `
-        <div style="margin-bottom: 6px; color: #94a3b8; font-size: 11px; font-weight: 600; letter-spacing: 0.3px; text-transform: uppercase;">Path</div>
-        <div style="color: #cbd5e1;">${pathLayers.length > 0 ? pathLayers.join(' → ') : '<em style="color: #64748b;">No path defined</em>'}</div>
+    pathLayers.forEach((layer, index) => {
+        // Layer badge
+        const badge = document.createElement('div');
+        const color = getLayerTypeColor(layer.id);
+        badge.style.cssText = `
+            background: ${color}20;
+            border: 1px solid ${color};
+            color: ${color};
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 600;
+            white-space: nowrap;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        `;
+        badge.textContent = layer.type;
+        flowDiv.appendChild(badge);
+        
+        // Arrow between layers
+        if (index < pathLayers.length - 1) {
+            const arrow = document.createElement('div');
+            arrow.style.cssText = `
+                color: #64748b;
+                font-size: 10px;
+                font-weight: 600;
+            `;
+            arrow.textContent = '→';
+            flowDiv.appendChild(arrow);
+        }
+    });
+    
+    // Stats row
+    const statsDiv = document.createElement('div');
+    statsDiv.style.cssText = `
+        display: flex;
+        gap: 12px;
+        font-size: 11px;
+        color: #94a3b8;
+        padding-top: 6px;
+        border-top: 1px solid #334155;
     `;
     
+    const stepCount = document.createElement('div');
+    stepCount.innerHTML = `<span style="color: #cbd5e1; font-weight: 600;">${path.layersInvolved.length}</span> step${path.layersInvolved.length !== 1 ? 's' : ''}`;
+    
+    const totalCalls = Object.values(path.avgCallsPerLayer || {}).reduce((a, b) => a + b, 0);
+    const callCount = document.createElement('div');
+    callCount.innerHTML = `<span style="color: #cbd5e1; font-weight: 600;">${totalCalls}</span> call${totalCalls !== 1 ? 's' : ''}`;
+    
+    statsDiv.appendChild(stepCount);
+    statsDiv.appendChild(callCount);
+    
     actionCard.appendChild(nameDiv);
-    actionCard.appendChild(pathDiv);
+    actionCard.appendChild(flowDiv);
+    actionCard.appendChild(statsDiv);
     
     // Click to select action
     actionCard.onclick = () => {
@@ -2276,6 +2480,220 @@ function deleteAction(pathId) {
     saveProject();
     selectedActionId = null;
     renderActionsView();
+}
+
+function showBestPracticesModal() {
+    // Create modal overlay
+    const overlay = document.createElement('div');
+    overlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.7);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+        animation: fadeIn 0.2s ease;
+    `;
+    
+    // Create modal container
+    const modal = document.createElement('div');
+    modal.style.cssText = `
+        background: #0f172a;
+        border: 1px solid #334155;
+        border-radius: 8px;
+        max-width: 700px;
+        max-height: 80vh;
+        overflow-y: auto;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+        animation: slideUp 0.3s ease;
+    `;
+    
+    // Header
+    const header = document.createElement('div');
+    header.style.cssText = `
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 24px;
+        border-bottom: 1px solid #334155;
+        background: #1e293b;
+        position: sticky;
+        top: 0;
+        z-index: 10001;
+    `;
+    
+    const title = document.createElement('h2');
+    title.textContent = 'Best Practices for Building Flows';
+    title.style.cssText = `
+        margin: 0;
+        color: #e2e8f0;
+        font-size: 18px;
+        font-weight: 700;
+    `;
+    
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = '✕';
+    closeBtn.style.cssText = `
+        background: transparent;
+        border: none;
+        color: #94a3b8;
+        font-size: 20px;
+        cursor: pointer;
+        padding: 0;
+        width: 32px;
+        height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s;
+    `;
+    closeBtn.onmouseover = () => closeBtn.style.color = '#e2e8f0';
+    closeBtn.onmouseout = () => closeBtn.style.color = '#94a3b8';
+    closeBtn.onclick = () => overlay.remove();
+    
+    header.appendChild(title);
+    header.appendChild(closeBtn);
+    
+    // Content
+    const content = document.createElement('div');
+    content.style.cssText = `
+        padding: 24px;
+        color: #cbd5e1;
+        line-height: 1.6;
+    `;
+    
+    const practices = [
+        {
+            title: '1. Keep Flows Focused',
+            description: 'Each flow should represent a single user journey or business process. Avoid creating flows that try to do too much.',
+            example: '✓ "Mobile App → API → Database" (clear path)\n✗ "Mobile App → API → Database → Cache → Message Queue" (too complex)'
+        },
+        {
+            title: '2. Use Meaningful Names',
+            description: 'Give flows descriptive names that clearly indicate their purpose. The system auto-generates names based on layer types, but you can customize them.',
+            example: '✓ "User Authentication"\n✗ "Flow 1" or "Process A"'
+        },
+        {
+            title: '3. Document the Purpose',
+            description: 'Add descriptions explaining what the flow does, why it exists, and any important context. This helps team members understand the flow\'s role.',
+            example: 'e.g., "Handles user login with OAuth2 integration and session management"'
+        },
+        {
+            title: '4. Respect Layer Hierarchy',
+            description: 'Flows should generally follow the natural layer hierarchy: Frontend → API → Backend → Database. Avoid jumping layers or creating circular dependencies.',
+            example: '✓ Frontend → Backend → Database\n✗ Frontend → Database (skips API layer)'
+        },
+        {
+            title: '5. Track Call Counts',
+            description: 'Specify how many times each layer is called in the flow. This helps with performance analysis and cost estimation.',
+            example: 'e.g., "API called 2 times, Database called 1 time per user request"'
+        },
+        {
+            title: '6. Identify Connection Types',
+            description: 'Specify the type of connection between layers (HTTP, gRPC, Database Query, etc.). This clarifies communication protocols and helps with architecture decisions.',
+            example: 'HTTP for REST APIs, gRPC for high-performance services, Database Query for data access'
+        },
+        {
+            title: '7. Group Related Flows',
+            description: 'Organize flows by feature or domain. Single Actions (one layer) are typically atomic operations, while Multi-Step Flows are complete user journeys.',
+            example: 'Group: "Authentication" (login, logout, refresh token)\nGroup: "Shopping" (browse, add to cart, checkout)'
+        },
+        {
+            title: '8. Review and Refine',
+            description: 'Regularly review your flows to ensure they accurately represent your system. Update them as your architecture evolves.',
+            example: 'When adding new services or changing communication patterns, update the relevant flows'
+        }
+    ];
+    
+    practices.forEach((practice, index) => {
+        const section = document.createElement('div');
+        section.style.cssText = `
+            margin-bottom: 24px;
+            padding-bottom: 24px;
+            border-bottom: 1px solid #334155;
+        `;
+        if (index === practices.length - 1) {
+            section.style.borderBottom = 'none';
+            section.style.marginBottom = '0';
+            section.style.paddingBottom = '0';
+        }
+        
+        const practiceTitle = document.createElement('h3');
+        practiceTitle.textContent = practice.title;
+        practiceTitle.style.cssText = `
+            margin: 0 0 8px 0;
+            color: #3b82f6;
+            font-size: 14px;
+            font-weight: 600;
+            letter-spacing: 0.3px;
+        `;
+        
+        const practiceDesc = document.createElement('p');
+        practiceDesc.textContent = practice.description;
+        practiceDesc.style.cssText = `
+            margin: 0 0 12px 0;
+            color: #cbd5e1;
+            font-size: 13px;
+        `;
+        
+        const practiceExample = document.createElement('div');
+        practiceExample.style.cssText = `
+            background: #1e293b;
+            border-left: 3px solid #8b5cf6;
+            padding: 10px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-family: 'Monaco', 'Courier New', monospace;
+            color: #cbd5e1;
+            white-space: pre-wrap;
+            word-break: break-word;
+        `;
+        practiceExample.textContent = practice.example;
+        
+        section.appendChild(practiceTitle);
+        section.appendChild(practiceDesc);
+        section.appendChild(practiceExample);
+        content.appendChild(section);
+    });
+    
+    // Footer with tips
+    const footer = document.createElement('div');
+    footer.style.cssText = `
+        padding: 16px 24px;
+        background: #1e293b;
+        border-top: 1px solid #334155;
+        font-size: 12px;
+        color: #94a3b8;
+    `;
+    footer.innerHTML = `
+        <strong style="color: #cbd5e1;">💡 Pro Tip:</strong> Use the "Import from Connections" button to auto-generate flows from your diagram, then refine them with meaningful names and descriptions.
+    `;
+    
+    modal.appendChild(header);
+    modal.appendChild(content);
+    modal.appendChild(footer);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    
+    // Close on overlay click
+    overlay.onclick = (e) => {
+        if (e.target === overlay) {
+            overlay.remove();
+        }
+    };
+    
+    // Close on Escape key
+    const handleEscape = (e) => {
+        if (e.key === 'Escape') {
+            overlay.remove();
+            document.removeEventListener('keydown', handleEscape);
+        }
+    };
+    document.addEventListener('keydown', handleEscape);
 }
 
 /**
