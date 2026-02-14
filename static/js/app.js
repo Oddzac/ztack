@@ -7,6 +7,7 @@ let redoStack = [];
 let selectedActionId = null;  // Track selected action in Actions View
 let actionsViewCollapsed = false;  // Track if Actions section is collapsed
 let pathsViewCollapsed = false;  // Track if Paths section is collapsed
+let currentView = 'stack';  // Track current view (stack, diagram, actions, cost-dashboard)
 const MAX_HISTORY = 50;
 
 function loadProject() {
@@ -109,6 +110,56 @@ function toggleDetailsPanel() {
             resizeCanvas();
         }
     }, 300);
+}
+
+// Toggle between different views (stack, diagram, actions, cost-dashboard)
+function toggleView(view) {
+    currentView = view;
+    
+    // Hide all views
+    document.getElementById('stack-view').style.display = 'none';
+    document.getElementById('diagram-view').style.display = 'none';
+    document.getElementById('actions-view').style.display = 'none';
+    document.getElementById('cost-dashboard-view').style.display = 'none';
+    
+    // Show/hide details panel based on view
+    const detailsPanel = document.getElementById('details-panel');
+    const panelToggle = document.getElementById('panel-toggle');
+    
+    // Show selected view
+    switch(view) {
+        case 'stack':
+            document.getElementById('stack-view').style.display = 'flex';
+            detailsPanel.style.display = 'flex';
+            panelToggle.style.display = 'flex';
+            break;
+        case 'diagram':
+            document.getElementById('diagram-view').style.display = 'flex';
+            detailsPanel.style.display = 'flex';
+            panelToggle.style.display = 'flex';
+            if (typeof initDiagramView === 'function') {
+                initDiagramView();
+            }
+            break;
+        case 'actions':
+            document.getElementById('actions-view').style.display = 'flex';
+            detailsPanel.style.display = 'flex';
+            panelToggle.style.display = 'flex';
+            renderActionsView();
+            // Auto-select first action and show in details frame
+            if (project.usePaths && project.usePaths.length > 0) {
+                const firstAction = project.usePaths[0];
+                selectedActionId = firstAction.id;
+                renderActionAssemblyPanel(firstAction);
+            }
+            break;
+        case 'cost-dashboard':
+            document.getElementById('cost-dashboard-view').style.display = 'flex';
+            detailsPanel.style.display = 'none';
+            panelToggle.style.display = 'none';
+            renderCostDashboard();
+            break;
+    }
 }
 
 function calculateTotalLayerCost(layer) {
@@ -907,224 +958,6 @@ function exitSubstack() {
     selectLayer(selectedLayerIndex);
 }
 
-function renderLayerDetails(layer) {
-    const detailsDiv = document.getElementById('layer-details');
-    const availableTargets = getAvailableConnectionTargets(layer);
-    
-    // Normalize connections to object format for consistent handling
-    const normalizedConnections = (layer.connections || []).map(c => 
-        typeof c === 'object' ? c : { targetId: c, type: 'HTTP' }
-    );
-    
-    // Generate unique ID for this layer's search input
-    const searchInputId = `conn-search-${layer.id}`;
-    
-    const substackList = layer.substacks && layer.substacks.length > 0 ? `
-        <div style="display: flex; flex-direction: column; gap: 8px;">
-            ${layer.substacks.map((sub, idx) => `
-                <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px; background: #1e293b; border: 1px solid #334155; border-radius: 4px; cursor: pointer;" onclick="enterSubstack(); selectLayer(${idx})">
-                    <div style="flex: 1; min-width: 0;">
-                        <div style="font-size: 13px; font-weight: 500; color: #e2e8f0;">${sub.name}</div>
-                        <div style="font-size: 11px; color: #64748b; margin-top: 2px;">${sub.type} • ${sub.status}</div>
-                    </div>
-                    <div style="font-size: 12px; color: #94a3b8; margin-left: 8px;">→</div>
-                </div>
-            `).join('')}
-        </div>
-    ` : `
-        <div style="padding: 16px; text-align: center; color: #64748b; font-size: 13px;">
-            No substacks yet. Click the button below to add one.
-        </div>
-    `;
-    
-    const substackSection = !inSubstack ? `
-        <div class="detail-section" style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 0;">
-            <div class="detail-label">Substacks (${layer.substacks ? layer.substacks.length : 0})</div>
-            ${substackList}
-            <button class="btn btn-secondary" style="width: 100%; margin-top: 8px;" onclick="addSubstackLayer()">+ Add Substack Layer</button>
-        </div>
-    ` : '';
-    
-    detailsDiv.innerHTML = `
-        <div style="display: flex; flex-direction: column; height: 100%; gap: 0;">
-            <!-- Tab Navigation -->
-            <div class="detail-tabs">
-                <button class="detail-tab active" data-tab="properties" onclick="switchDetailTab('properties')">
-                    Properties
-                </button>
-                <button class="detail-tab" data-tab="connections" onclick="switchDetailTab('connections')">
-                    Connections <span style="font-size: 10px; margin-left: 4px; opacity: 0.7;">${normalizedConnections.length}</span>
-                </button>
-                <button class="detail-tab" data-tab="cost" onclick="switchDetailTab('cost')">
-                    Cost
-                </button>
-                ${!inSubstack ? `
-                    <button class="detail-tab" data-tab="substacks" onclick="switchDetailTab('substacks')">
-                        Substacks <span style="font-size: 10px; margin-left: 4px; opacity: 0.7;">${layer.substacks ? layer.substacks.length : 0}</span>
-                    </button>
-                ` : ''}
-            </div>
-            
-            <!-- Tab Content -->
-            <div style="flex: 1; display: flex; flex-direction: column; min-height: 0;">
-                <!-- Properties Tab -->
-                <div class="detail-tab-content active" data-tab="properties" style="display: flex; flex-direction: column; gap: 16px; padding: 16px 16px 16px 0; overflow-y: auto; padding-right: 16px;">
-                    <div class="detail-section" style="margin-bottom: 0;">
-                        <div class="detail-label">Layer Name</div>
-                        <input type="text" class="detail-input" value="${layer.name}" 
-                               onchange="updateLayerField('name', this.value)">
-                    </div>
-                    
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                        <div class="detail-section" style="margin-bottom: 0;">
-                            <div class="detail-label">Type</div>
-                            <select class="detail-select" onchange="updateLayerField('type', this.value)">
-                                ${Object.keys(LAYER_TYPES).map(type => 
-                                    `<option value="${type}" ${layer.type === type ? 'selected' : ''}>${type}</option>`
-                                ).join('')}
-                            </select>
-                        </div>
-                        
-                        <div class="detail-section" style="margin-bottom: 0;">
-                            <div class="detail-label">Status</div>
-                            <select class="detail-select" onchange="updateLayerField('status', this.value)">
-                                <option value="Active" ${layer.status === 'Active' ? 'selected' : ''}>Active</option>
-                                <option value="Inactive" ${layer.status === 'Inactive' ? 'selected' : ''}>Inactive</option>
-                                <option value="Deprecated" ${layer.status === 'Deprecated' ? 'selected' : ''}>Deprecated</option>
-                            </select>
-                        </div>
-                    </div>
-                    
-                    <div class="detail-section" style="margin-bottom: 0;">
-                        <div class="detail-label">Technology</div>
-                        <input type="text" class="detail-input" value="${layer.technology || ''}" 
-                               placeholder="e.g., React, Node.js, PostgreSQL"
-                               onchange="updateLayerField('technology', this.value)">
-                    </div>
-                    
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                        <div class="detail-section" style="margin-bottom: 0;">
-                            <div class="detail-label">Description</div>
-                            <textarea class="detail-textarea" style="min-height: 100px;"
-                                      onchange="updateLayerField('description', this.value)">${layer.description || ''}</textarea>
-                        </div>
-                        
-                        <div class="detail-section" style="margin-bottom: 0;">
-                            <div class="detail-label">Responsibilities</div>
-                            <textarea class="detail-textarea" style="min-height: 100px;"
-                                      placeholder="What does this component do?"
-                                      onchange="updateLayerField('responsibilities', this.value)">${layer.responsibilities || ''}</textarea>
-                        </div>
-                    </div>
-                    
-                    <!-- Properties Tab Actions -->
-                    <div style="display: flex; gap: 8px; margin-top: 8px;">
-                        <button class="btn btn-secondary" style="flex: 1;" onclick="moveLayer(-1)" title="Move layer up">↑ Move Up</button>
-                        <button class="btn btn-secondary" style="flex: 1;" onclick="moveLayer(1)" title="Move layer down">↓ Move Down</button>
-                    </div>
-                    
-                    <button class="btn btn-danger" style="width: 100%;" onclick="deleteLayer()">Delete ${inSubstack ? 'Substack Component' : 'Layer'}</button>
-                </div>
-                
-                <!-- Connections Tab -->
-                <div class="detail-tab-content" data-tab="connections" style="display: none; flex-direction: column; gap: 16px; padding: 16px 0; min-height: 0;">
-                    <div class="detail-section" style="display: flex; flex-direction: column; flex: 1; min-height: 0; margin-bottom: 0;">
-                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; flex-shrink: 0;">
-                            <div class="detail-label" style="margin: 0;">Connections ${inSubstack ? '(Substack)' : '(Layer)'}</div>
-                            <span style="font-size: 11px; color: #64748b;">${normalizedConnections.length}/${availableTargets.length}</span>
-                        </div>
-                        <div style="font-size: 11px; color: #64748b; margin-bottom: 8px; flex-shrink: 0;">
-                            ${inSubstack ? 'Connections from this substack component' : 'Connections from this layer'}
-                        </div>
-                        <input type="text" id="${searchInputId}" class="detail-input" placeholder="Search connections..." 
-                               style="margin-bottom: 8px; font-size: 12px; flex-shrink: 0;" 
-                               onkeyup="filterConnections('${searchInputId}', '${layer.id}')">
-                        <div class="connections-list" style="flex: 1; overflow-y: auto; border: 1px solid #334155; border-radius: 4px; padding: 8px; min-height: 0;">
-                            ${availableTargets.length === 0 ? '<span style="color: #64748b; font-size: 12px;">No available targets</span>' : ''}
-                            ${availableTargets.map(target => {
-                                const existingConnection = normalizedConnections.find(c => c.targetId == target.id);
-                                const connectionType = existingConnection ? existingConnection.type : 'HTTP';
-                                return `
-                                <div class="connection-item" data-search="${(target.name + target.type).toLowerCase()}" style="display: flex; align-items: center; gap: 8px; padding: 8px 6px; cursor: pointer; border-radius: 3px; transition: background 0.2s; margin-bottom: 4px; border: 1px solid #334155;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">
-                                    <input type="checkbox" ${existingConnection ? 'checked' : ''} 
-                                           onchange="toggleConnection('${target.id}', this.checked, '${connectionType}')">
-                                    <div style="flex: 1; min-width: 0;">
-                                        <div style="font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${target.name}</div>
-                                        <div style="font-size: 10px; color: #64748b;">${target.type}${target.isSubstack ? ' • substack' : ''}</div>
-                                    </div>
-                                    <select id="type-${target.id}" class="detail-select" style="font-size: 11px; padding: 4px 6px; width: auto;" 
-                                            onchange="updateConnectionType('${target.id}', this.value)" ${!existingConnection ? 'disabled' : ''}>
-                                        ${Object.entries(CONNECTION_TYPES).map(([key, val]) => 
-                                            `<option value="${key}" ${connectionType === key ? 'selected' : ''}>${val.label}</option>`
-                                        ).join('')}
-                                    </select>
-                                </div>
-                            `}).join('')}
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Cost Tab -->
-                <div class="detail-tab-content" data-tab="cost" style="display: none; flex-direction: column; gap: 16px; padding: 16px 16px 16px 0; overflow-y: auto; padding-right: 16px;">
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                        <div class="detail-section" style="margin-bottom: 0;">
-                            <div class="detail-label">Currency</div>
-                            <select class="detail-select" onchange="updateCostField('currency', this.value)">
-                                ${COST_CURRENCIES.map(curr => 
-                                    `<option value="${curr}" ${(layer.costModel?.currency || 'USD') === curr ? 'selected' : ''}>${curr}</option>`
-                                ).join('')}
-                            </select>
-                        </div>
-                        
-                        <div class="detail-section" style="margin-bottom: 0;">
-                            <div class="detail-label">Period</div>
-                            <select class="detail-select" onchange="updateCostField('period', this.value)">
-                                ${COST_PERIODS.map(period => 
-                                    `<option value="${period}" ${(layer.costModel?.period || 'month') === period ? 'selected' : ''}>${period}</option>`
-                                ).join('')}
-                            </select>
-                        </div>
-                    </div>
-                    
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                        <div class="detail-section" style="margin-bottom: 0;">
-                            <div class="detail-label">Fixed Cost</div>
-                            <input type="number" class="detail-input" step="0.01" value="${layer.costModel?.fixedCost || 0}" 
-                                   onchange="updateCostField('fixedCost', parseFloat(this.value))">
-                        </div>
-                        
-                        <div class="detail-section" style="margin-bottom: 0;">
-                            <div class="detail-label">Variable Cost</div>
-                            <input type="number" class="detail-input" step="0.00001" value="${layer.costModel?.variableCost || 0}" 
-                                   onchange="updateCostField('variableCost', parseFloat(this.value))">
-                        </div>
-                    </div>
-                    
-                    <div class="detail-section" style="margin-bottom: 0;">
-                        <div class="detail-label">Variable Unit</div>
-                        <input type="text" class="detail-input" value="${layer.costModel?.variableUnit || ''}" 
-                               placeholder="e.g., per 1M requests, per GB, per hour"
-                               onchange="updateCostField('variableUnit', this.value)">
-                    </div>
-                    
-                    <div class="detail-section" style="margin-bottom: 0;">
-                        <div class="detail-label">Notes</div>
-                        <textarea class="detail-textarea" style="min-height: 80px;"
-                                  placeholder="Optional documentation about costs"
-                                  onchange="updateCostField('notes', this.value)">${layer.costModel?.notes || ''}</textarea>
-                    </div>
-                </div>
-                
-                <!-- Substacks Tab -->
-                ${!inSubstack ? `
-                    <div class="detail-tab-content" data-tab="substacks" style="display: none; flex-direction: column; gap: 16px; padding: 16px 16px 16px 0; overflow-y: auto; padding-right: 16px;">
-                        ${substackSection}
-                    </div>
-                ` : ''}
-            </div>
-        </div>
-    `;
-}
 
 function getAllLayers() {
     const layers = [];
@@ -2001,95 +1834,360 @@ document.addEventListener('DOMContentLoaded', () => {
  */
 function renderActionsView() {
     const container = document.getElementById('actions-view');
-    container.innerHTML = '';
     
-    // Header with buttons
-    const header = document.createElement('div');
-    header.style.cssText = `
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 32px;
-        padding-bottom: 16px;
-        border-bottom: 2px solid #334155;
-        flex-wrap: wrap;
-        gap: 12px;
-    `;
+    // Check if we need to do a full render or just update the list
+    const existingFilterContainer = container.querySelector('[data-filter-container]');
+    const isFullRender = !existingFilterContainer;
     
-    const title = document.createElement('h2');
-    title.textContent = 'Actions & Flows';
-    title.style.cssText = `
-        margin: 0;
-        color: #e2e8f0;
-        font-size: 20px;
-        font-weight: 700;
-        letter-spacing: -0.5px;
-        flex: 1;
-    `;
+    if (isFullRender) {
+        container.innerHTML = '';
+    }
     
-    const buttonGroup = document.createElement('div');
-    buttonGroup.style.cssText = `
-        display: flex;
-        gap: 8px;
-    `;
+    // Header with buttons (only render on full render)
+    if (isFullRender) {
+        const header = document.createElement('div');
+        header.style.cssText = `
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 32px;
+            padding-bottom: 16px;
+            border-bottom: 2px solid #334155;
+            flex-wrap: wrap;
+            gap: 12px;
+        `;
+        
+        const title = document.createElement('h2');
+        title.textContent = 'Actions & Flows';
+        title.style.cssText = `
+            margin: 0;
+            color: #e2e8f0;
+            font-size: 20px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            flex: 1;
+        `;
+        
+        const buttonGroup = document.createElement('div');
+        buttonGroup.style.cssText = `
+            display: flex;
+            gap: 8px;
+        `;
+        
+        const helpBtn = document.createElement('button');
+        helpBtn.textContent = '🛈';
+        helpBtn.style.cssText = `
+            background: #2b4a76ff;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+            transition: all 0.2s;
+        `;
+        helpBtn.onmouseover = () => helpBtn.style.background = '#466da4ff';
+        helpBtn.onmouseout = () => helpBtn.style.background = '#2b4a76ff';
+        helpBtn.onclick = () => showBestPracticesModal();
+        
+        const importBtn = document.createElement('button');
+        importBtn.textContent = '⚡ Import from Connections';
+        importBtn.style.cssText = `
+            background: #8b5cf6;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+            transition: all 0.2s;
+        `;
+        importBtn.onmouseover = () => importBtn.style.background = '#7c3aed';
+        importBtn.onmouseout = () => importBtn.style.background = '#8b5cf6';
+        importBtn.onclick = () => importActionsFromConnections();
+        
+        const addBtn = document.createElement('button');
+        addBtn.textContent = '+ New Action';
+        addBtn.style.cssText = `
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+            transition: all 0.2s;
+        `;
+        addBtn.onmouseover = () => addBtn.style.background = '#2563eb';
+        addBtn.onmouseout = () => addBtn.style.background = '#3b82f6';
+        addBtn.onclick = () => createNewAction();
+        
+        buttonGroup.appendChild(helpBtn);
+        buttonGroup.appendChild(importBtn);
+        buttonGroup.appendChild(addBtn);
+        header.appendChild(title);
+        header.appendChild(buttonGroup);
+        container.appendChild(header);
+    }
     
-    const helpBtn = document.createElement('button');
-    helpBtn.textContent = '🛈';
-    helpBtn.style.cssText = `
-        background: #2b4a76ff;
-        color: white;
-        border: none;
-        padding: 8px 16px;
-        border-radius: 4px;
-        cursor: pointer;
-        font-size: 12px;
-        font-weight: 500;
-        transition: all 0.2s;
-    `;
-    helpBtn.onmouseover = () => helpBtn.style.background = '#466da4ff';
-    helpBtn.onmouseout = () => helpBtn.style.background = '#2b4a76ff';
-    helpBtn.onclick = () => showBestPracticesModal();
+    // Initialize filter state if not exists
+    if (!window.actionsFilterState) {
+        window.actionsFilterState = {
+            searchText: '',
+            selectedLayerTypes: [],
+            sortBy: 'name'
+        };
+    }
     
-    const importBtn = document.createElement('button');
-    importBtn.textContent = '⚡ Import from Connections';
-    importBtn.style.cssText = `
-        background: #8b5cf6;
-        color: white;
-        border: none;
-        padding: 8px 16px;
-        border-radius: 4px;
-        cursor: pointer;
-        font-size: 12px;
-        font-weight: 500;
-        transition: all 0.2s;
-    `;
-    importBtn.onmouseover = () => importBtn.style.background = '#7c3aed';
-    importBtn.onmouseout = () => importBtn.style.background = '#8b5cf6';
-    importBtn.onclick = () => importActionsFromConnections();
+    // Create or preserve filter container
+    let filterContainer = container.querySelector('[data-filter-container]');
+    if (!filterContainer) {
+        filterContainer = document.createElement('div');
+        filterContainer.setAttribute('data-filter-container', 'true');
+        filterContainer.style.cssText = `
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-bottom: 24px;
+            padding: 16px;
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 6px;
+        `;
+        
+        // Top row: Search and Sort
+        const topRow = document.createElement('div');
+        topRow.style.cssText = `
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        `;
+        
+        // Search input
+        const searchInput = document.createElement('input');
+        searchInput.type = 'text';
+        searchInput.placeholder = 'Search actions...';
+        searchInput.value = window.actionsFilterState.searchText;
+        searchInput.setAttribute('data-search-input', 'true');
+        searchInput.style.cssText = `
+            flex: 1;
+            background: #0f172a;
+            border: 1px solid #334155;
+            color: #e2e8f0;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            transition: all 0.2s;
+        `;
+        searchInput.onfocus = () => {
+            searchInput.style.borderColor = '#3b82f6';
+            searchInput.style.boxShadow = '0 0 0 2px rgba(59, 130, 246, 0.1)';
+        };
+        searchInput.onblur = () => {
+            searchInput.style.borderColor = '#334155';
+            searchInput.style.boxShadow = 'none';
+        };
+        
+        // Debounced search handler - only update list, not entire view
+        let searchDebounceTimer;
+        searchInput.oninput = (e) => {
+            window.actionsFilterState.searchText = e.target.value;
+            if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+            searchDebounceTimer = setTimeout(() => {
+                updateActionsListOnly();
+            }, 300);
+        };
+        
+        // Sort dropdown
+        const sortSelect = document.createElement('select');
+        sortSelect.style.cssText = `
+            background: #0f172a;
+            border: 1px solid #334155;
+            color: #e2e8f0;
+            padding: 8px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        `;
+        
+        const sortOptions = [
+            { value: 'name', label: 'Name (A-Z)' },
+            { value: 'cost', label: 'Cost (High to Low)' },
+            { value: 'steps', label: 'Steps (Most to Least)' }
+        ];
+        
+        sortOptions.forEach(opt => {
+            const option = document.createElement('option');
+            option.value = opt.value;
+            option.textContent = opt.label;
+            sortSelect.appendChild(option);
+        });
+        
+        sortSelect.value = window.actionsFilterState.sortBy;
+        sortSelect.onchange = (e) => {
+            window.actionsFilterState.sortBy = e.target.value;
+            renderActionsView();
+        };
+        
+        topRow.appendChild(searchInput);
+        topRow.appendChild(sortSelect);
+        
+        // Bottom row: Layer type filters
+        const bottomRow = document.createElement('div');
+        bottomRow.style.cssText = `
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            align-items: center;
+        `;
+        
+        const layerTypeLabel = document.createElement('span');
+        layerTypeLabel.textContent = 'Layer Types:';
+        layerTypeLabel.style.cssText = `
+            color: #94a3b8;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            white-space: nowrap;
+        `;
+        bottomRow.appendChild(layerTypeLabel);
+        
+        const layerTypes = ['Frontend', 'API', 'Backend', 'Database', 'DevOps'];
+        const typeColors = {
+            'Frontend': '#06b6d4',
+            'API': '#8b5cf6',
+            'Backend': '#10b981',
+            'Database': '#f59e0b',
+            'DevOps': '#ef4444'
+        };
+        
+        layerTypes.forEach(type => {
+            const isSelected = window.actionsFilterState.selectedLayerTypes.includes(type);
+            
+            const badge = document.createElement('button');
+            badge.textContent = type;
+            badge.style.cssText = `
+                background: ${isSelected ? typeColors[type] : typeColors[type] + '20'};
+                border: 1px solid ${typeColors[type]};
+                color: ${isSelected ? '#ffffff' : typeColors[type]};
+                padding: 4px 10px;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 11px;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                transition: all 0.2s;
+                white-space: nowrap;
+            `;
+            
+            badge.onmouseover = () => {
+                if (!isSelected) {
+                    badge.style.background = typeColors[type] + '40';
+                }
+            };
+            badge.onmouseout = () => {
+                if (!isSelected) {
+                    badge.style.background = typeColors[type] + '20';
+                }
+            };
+            
+            badge.onclick = () => {
+                if (isSelected) {
+                    window.actionsFilterState.selectedLayerTypes = window.actionsFilterState.selectedLayerTypes.filter(t => t !== type);
+                } else {
+                    window.actionsFilterState.selectedLayerTypes.push(type);
+                }
+                renderActionsView();
+            };
+            
+            bottomRow.appendChild(badge);
+        });
+        
+        // Clear filters button
+        const clearBtn = document.createElement('button');
+        clearBtn.textContent = '✕ Clear';
+        clearBtn.style.cssText = `
+            background: transparent;
+            color: #94a3b8;
+            border: 1px solid #475569;
+            padding: 4px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            transition: all 0.2s;
+            margin-left: auto;
+        `;
+        clearBtn.onmouseover = () => {
+            clearBtn.style.background = '#475569';
+            clearBtn.style.color = '#e2e8f0';
+        };
+        clearBtn.onmouseout = () => {
+            clearBtn.style.background = 'transparent';
+            clearBtn.style.color = '#94a3b8';
+        };
+        clearBtn.onclick = () => {
+            window.actionsFilterState = {
+                searchText: '',
+                selectedLayerTypes: [],
+                sortBy: 'name'
+            };
+            renderActionsView();
+        };
+        bottomRow.appendChild(clearBtn);
+        
+        filterContainer.appendChild(topRow);
+        filterContainer.appendChild(bottomRow);
+        container.appendChild(filterContainer);
+    } else {
+        // Update search input value if changed externally
+        const searchInput = filterContainer.querySelector('[data-search-input]');
+        if (searchInput && searchInput !== document.activeElement) {
+            searchInput.value = window.actionsFilterState.searchText;
+        }
+    }
     
-    const addBtn = document.createElement('button');
-    addBtn.textContent = '+ New Action';
-    addBtn.style.cssText = `
-        background: #3b82f6;
-        color: white;
-        border: none;
-        padding: 8px 16px;
-        border-radius: 4px;
-        cursor: pointer;
-        font-size: 12px;
-        font-weight: 500;
-        transition: all 0.2s;
-    `;
-    addBtn.onmouseover = () => addBtn.style.background = '#2563eb';
-    addBtn.onmouseout = () => addBtn.style.background = '#3b82f6';
-    addBtn.onclick = () => createNewAction();
+    // Clear old actions list but keep filter container
+    let actionsListContainer = container.querySelector('[data-actions-list]');
+    if (actionsListContainer) {
+        actionsListContainer.remove();
+    }
     
-    buttonGroup.appendChild(helpBtn);
-    buttonGroup.appendChild(importBtn);
-    buttonGroup.appendChild(addBtn);
-    header.appendChild(title);
-    header.appendChild(buttonGroup);
-    container.appendChild(header);
+    actionsListContainer = document.createElement('div');
+    actionsListContainer.setAttribute('data-actions-list', 'true');
+    container.appendChild(actionsListContainer);
+    
+    // Render the actions list
+    renderActionsListContent(actionsListContainer);
+}
+
+// Update only the actions list without re-rendering the filter container
+// This preserves search input focus during typing
+function updateActionsListOnly() {
+    const container = document.getElementById('actions-view');
+    let actionsListContainer = container.querySelector('[data-actions-list]');
+    
+    if (actionsListContainer) {
+        actionsListContainer.innerHTML = '';
+    } else {
+        actionsListContainer = document.createElement('div');
+        actionsListContainer.setAttribute('data-actions-list', 'true');
+        container.appendChild(actionsListContainer);
+    }
+    
+    renderActionsListContent(actionsListContainer);
+}
+
+// Render just the actions list content (preserves filter container and search focus)
+function renderActionsListContent(container) {
     
     // Actions list
     if (!project.usePaths || project.usePaths.length === 0) {
@@ -2107,13 +2205,80 @@ function renderActionsView() {
         return;
     }
     
-    // Separate actions and paths
-    const actions = project.usePaths.filter(p => p.layersInvolved.length === 1);
-    const paths = project.usePaths.filter(p => p.layersInvolved.length > 1);
+    // Apply search and layer type filters
+    const searchLower = window.actionsFilterState.searchText.toLowerCase();
+    const filterBySearch = (item) => {
+        if (!searchLower) return true;
+        return item.name.toLowerCase().includes(searchLower) || 
+               (item.description && item.description.toLowerCase().includes(searchLower));
+    };
     
-    // Sort both by name
-    actions.sort((a, b) => a.name.localeCompare(b.name));
-    paths.sort((a, b) => a.name.localeCompare(b.name));
+    const filterByLayerTypes = (item) => {
+        if (window.actionsFilterState.selectedLayerTypes.length === 0) return true;
+        return window.actionsFilterState.selectedLayerTypes.every(type => {
+            return item.layersInvolved.some(layerId => {
+                const layer = getAllLayers().find(l => l.id === layerId);
+                return layer && layer.type === type;
+            });
+        });
+    };
+    
+    // Filter all paths
+    const filteredAll = project.usePaths.filter(p => filterBySearch(p) && filterByLayerTypes(p));
+    
+    // Show no results if all filtered out
+    if (filteredAll.length === 0) {
+        const noResults = document.createElement('div');
+        noResults.style.cssText = `
+            text-align: center;
+            color: #64748b;
+            padding: 60px 20px;
+        `;
+        noResults.innerHTML = `
+            <div style="font-size: 15px; margin-bottom: 12px; color: #94a3b8;">No actions match your filters</div>
+            <div style="font-size: 13px; line-height: 1.6;">Try adjusting your search or filters</div>
+        `;
+        container.appendChild(noResults);
+        return;
+    }
+    
+    // Separate by source (manual first, then imported)
+    const manualAll = filteredAll.filter(p => !p.source || p.source === 'manual');
+    const importedAll = filteredAll.filter(p => p.source === 'imported');
+    
+    // Separate actions and paths within each source
+    const manualActions = manualAll.filter(p => p.layersInvolved.length === 1);
+    const manualPaths = manualAll.filter(p => p.layersInvolved.length > 1);
+    const importedActions = importedAll.filter(p => p.layersInvolved.length === 1);
+    const importedPaths = importedAll.filter(p => p.layersInvolved.length > 1);
+    
+    // Apply sorting
+    const sortBy = window.actionsFilterState.sortBy;
+    const calculateCost = (path) => {
+        let total = 0;
+        path.layersInvolved.forEach(layerId => {
+            const layer = getAllLayers().find(l => l.id === layerId);
+            if (layer && layer.costModel) {
+                total += (layer.costModel.fixedCost || 0);
+            }
+        });
+        return total;
+    };
+    
+    const sortItems = (items) => {
+        if (sortBy === 'cost') {
+            return items.sort((a, b) => calculateCost(b) - calculateCost(a));
+        } else if (sortBy === 'steps') {
+            return items.sort((a, b) => b.layersInvolved.length - a.layersInvolved.length);
+        } else {
+            return items.sort((a, b) => a.name.localeCompare(b.name));
+        }
+    };
+    
+    sortItems(manualActions);
+    sortItems(manualPaths);
+    sortItems(importedActions);
+    sortItems(importedPaths);
     
     // Helper function to create section header
     function createSectionHeader(title, count, isCollapsed, toggleCallback) {
@@ -2176,78 +2341,107 @@ function renderActionsView() {
         return { header, toggleIcon };
     }
     
-    // Render Actions section (collapsible)
-    if (actions.length > 0) {
-        const actionsSection = document.createElement('div');
-        actionsSection.style.cssText = `
-            margin-bottom: 40px;
+    // Helper to render a subsection (Single Actions or Multi-Step Flows)
+    function renderSubsection(items, title, collapsedKey) {
+        if (items.length === 0) return null;
+        
+        const section = document.createElement('div');
+        section.style.cssText = `
+            margin-bottom: 24px;
         `;
         
-        const { header: actionsHeader, toggleIcon: actionsToggle } = createSectionHeader(
-            'Single Actions',
-            actions.length,
-            actionsViewCollapsed,
+        const isCollapsed = window[collapsedKey];
+        const { header, toggleIcon } = createSectionHeader(
+            title,
+            items.length,
+            isCollapsed,
             () => {
-                actionsViewCollapsed = !actionsViewCollapsed;
-                actionsContainer.style.display = actionsViewCollapsed ? 'none' : 'grid';
-                actionsToggle.style.transform = actionsViewCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)';
+                window[collapsedKey] = !window[collapsedKey];
+                itemsContainer.style.display = window[collapsedKey] ? 'none' : 'grid';
+                toggleIcon.style.transform = window[collapsedKey] ? 'rotate(-90deg)' : 'rotate(0deg)';
             }
         );
         
-        const actionsContainer = document.createElement('div');
-        actionsContainer.style.cssText = `
-            display: ${actionsViewCollapsed ? 'none' : 'grid'};
+        const itemsContainer = document.createElement('div');
+        itemsContainer.style.cssText = `
+            display: ${isCollapsed ? 'none' : 'grid'};
             grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
             gap: 16px;
             animation: fadeIn 0.3s ease;
         `;
         
-        // Render action cards
-        actions.forEach(action => {
-            const actionCard = createActionCard(action);
-            actionsContainer.appendChild(actionCard);
+        items.forEach(item => {
+            const card = createActionCard(item);
+            itemsContainer.appendChild(card);
         });
         
-        actionsSection.appendChild(actionsHeader);
-        actionsSection.appendChild(actionsContainer);
-        container.appendChild(actionsSection);
+        section.appendChild(header);
+        section.appendChild(itemsContainer);
+        return section;
     }
     
-    // Render Paths section (collapsible)
-    if (paths.length > 0) {
-        const pathsSection = document.createElement('div');
-        pathsSection.style.cssText = `
+    // Render Manual section
+    if (manualActions.length > 0 || manualPaths.length > 0) {
+        const manualSection = document.createElement('div');
+        manualSection.style.cssText = `
             margin-bottom: 40px;
         `;
         
-        const { header: pathsHeader, toggleIcon: pathsToggle } = createSectionHeader(
-            'Multi-Step Flows',
-            paths.length,
-            pathsViewCollapsed,
-            () => {
-                pathsViewCollapsed = !pathsViewCollapsed;
-                pathsContainer.style.display = pathsViewCollapsed ? 'none' : 'grid';
-                pathsToggle.style.transform = pathsViewCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)';
-            }
-        );
+        const manualTitle = document.createElement('div');
+        manualTitle.style.cssText = `
+            color: #e2e8f0;
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid #334155;
+        `;
+        manualTitle.textContent = 'Manual';
+        manualSection.appendChild(manualTitle);
         
-        const pathsContainer = document.createElement('div');
-        pathsContainer.style.cssText = `
-            display: ${pathsViewCollapsed ? 'none' : 'grid'};
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-            gap: 16px;
-            animation: fadeIn 0.3s ease;
+        if (manualActions.length > 0) {
+            const actionsSubsection = renderSubsection(manualActions, 'Single Actions', 'manualActionsCollapsed');
+            if (actionsSubsection) manualSection.appendChild(actionsSubsection);
+        }
+        
+        if (manualPaths.length > 0) {
+            const pathsSubsection = renderSubsection(manualPaths, 'Multi-Step Flows', 'manualPathsCollapsed');
+            if (pathsSubsection) manualSection.appendChild(pathsSubsection);
+        }
+        
+        container.appendChild(manualSection);
+    }
+    
+    // Render Imported section
+    if (importedActions.length > 0 || importedPaths.length > 0) {
+        const importedSection = document.createElement('div');
+        importedSection.style.cssText = `
+            margin-bottom: 40px;
         `;
         
-        // Render path cards
-        paths.forEach(path => {
-            const pathCard = createActionCard(path);
-            pathsContainer.appendChild(pathCard);
-        });
+        const importedTitle = document.createElement('div');
+        importedTitle.style.cssText = `
+            color: #e2e8f0;
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid #334155;
+        `;
+        importedTitle.textContent = 'Imported';
+        importedSection.appendChild(importedTitle);
         
-        pathsSection.appendChild(pathsHeader);
-        pathsSection.appendChild(pathsContainer);
-        container.appendChild(pathsSection);
+        if (importedActions.length > 0) {
+            const actionsSubsection = renderSubsection(importedActions, 'Single Actions', 'importedActionsCollapsed');
+            if (actionsSubsection) importedSection.appendChild(actionsSubsection);
+        }
+        
+        if (importedPaths.length > 0) {
+            const pathsSubsection = renderSubsection(importedPaths, 'Multi-Step Flows', 'importedPathsCollapsed');
+            if (pathsSubsection) importedSection.appendChild(pathsSubsection);
+        }
+        
+        container.appendChild(importedSection);
     }
 }
 
@@ -2438,7 +2632,8 @@ function createNewAction() {
         description: '',
         layersInvolved: [],
         avgCallsPerLayer: {},
-        notes: ''
+        notes: '',
+        source: 'manual'  // Track that this was manually created
     };
     
     if (!project.usePaths) {
@@ -2719,32 +2914,60 @@ function renderActionAssemblyPanel(path) {
                           onchange="updateActionDescription('${path.id}', this.value)">${path.description || ''}</textarea>
             </div>
             
-            <!-- Search Box -->
-            <div style="margin-bottom: 16px; flex-shrink: 0;">
-                <input type="text" id="assembly-search" placeholder="Search layers..." 
-                       style="width: 100%; background: #1e293b; border: 1px solid #334155; color: #e2e8f0; 
-                              padding: 8px 12px; border-radius: 4px; font-size: 12px; box-sizing: border-box;"
-                       onkeyup="filterAssemblyLayers()">
+            <!-- Tab Navigation -->
+            <div style="display: flex; gap: 8px; margin-bottom: 16px; border-bottom: 1px solid #334155; flex-shrink: 0;">
+                <button class="action-tab active" data-tab="assembly" onclick="switchActionTab('assembly')" 
+                        style="flex: 1; background: transparent; color: #e2e8f0; border: none; border-bottom: 2px solid #3b82f6; 
+                               padding: 8px 12px; cursor: pointer; font-size: 12px; font-weight: 500; transition: all 0.2s;">
+                    Assembly
+                </button>
+                <button class="action-tab" data-tab="path" onclick="switchActionTab('path')" 
+                        style="flex: 1; background: transparent; color: #94a3b8; border: none; border-bottom: 2px solid transparent; 
+                               padding: 8px 12px; cursor: pointer; font-size: 12px; font-weight: 500; transition: all 0.2s;">
+                    Path (${path.layersInvolved.length})
+                </button>
+                <button class="action-tab" data-tab="costs" onclick="switchActionTab('costs')" 
+                        style="flex: 1; background: transparent; color: #94a3b8; border: none; border-bottom: 2px solid transparent; 
+                               padding: 8px 12px; cursor: pointer; font-size: 12px; font-weight: 500; transition: all 0.2s;">
+                    Costs
+                </button>
             </div>
             
-            <!-- Available Layers -->
-            <div style="margin-bottom: 16px; flex-shrink: 0;">
-                <div style="color: #94a3b8; font-size: 11px; margin-bottom: 8px; font-weight: 500;">
-                    Available Layers
-                </div>
-                <div id="assembly-layers" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; max-height: 150px; overflow-y: auto;">
-                    <!-- Layers will be populated here -->
-                </div>
-            </div>
-            
-            <!-- Current Path -->
+            <!-- Tab Content -->
             <div style="flex: 1; display: flex; flex-direction: column; min-height: 0; margin-bottom: 16px;">
-                <div style="color: #94a3b8; font-size: 11px; margin-bottom: 8px; font-weight: 500;">
-                    Action Path (${path.layersInvolved.length} steps)
+                <!-- Assembly Tab -->
+                <div class="action-tab-content active" data-tab="assembly" style="display: flex; flex-direction: column; gap: 12px; overflow-y: auto; padding-right: 8px;">
+                    <!-- Search Box -->
+                    <div style="flex-shrink: 0;">
+                        <input type="text" id="assembly-search" placeholder="Search layers..." 
+                               style="width: 100%; background: #1e293b; border: 1px solid #334155; color: #e2e8f0; 
+                                      padding: 8px 12px; border-radius: 4px; font-size: 12px; box-sizing: border-box;"
+                               onkeyup="filterAssemblyLayers()">
+                    </div>
+                    
+                    <!-- Available Layers -->
+                    <div style="flex-shrink: 0;">
+                        <div style="color: #94a3b8; font-size: 11px; margin-bottom: 8px; font-weight: 500;">
+                            Available Layers
+                        </div>
+                        <div id="assembly-layers" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; max-height: 150px; overflow-y: auto;">
+                            <!-- Layers will be populated here -->
+                        </div>
+                    </div>
                 </div>
-                <div id="assembly-path" style="flex: 1; background: #0f172a; border: 1px solid #334155; border-radius: 4px; 
-                                               padding: 12px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;">
-                    <!-- Path steps will be populated here -->
+                
+                <!-- Path Tab -->
+                <div class="action-tab-content" data-tab="path" style="display: none; flex-direction: column; gap: 8px; overflow-y: auto; padding-right: 8px;">
+                    <div id="assembly-path" style="display: flex; flex-direction: column; gap: 8px;">
+                        <!-- Path steps will be populated here -->
+                    </div>
+                </div>
+                
+                <!-- Costs Tab -->
+                <div class="action-tab-content" data-tab="costs" style="display: none; flex-direction: column; gap: 8px; overflow-y: auto; padding-right: 8px;">
+                    <div id="action-costs-breakdown" style="display: flex; flex-direction: column; gap: 8px;">
+                        <!-- Cost breakdown will be populated here -->
+                    </div>
                 </div>
             </div>
             
@@ -2771,6 +2994,184 @@ function renderActionAssemblyPanel(path) {
     
     // Populate current path
     populateAssemblyPath(path);
+    
+    // Populate cost breakdown
+    populateActionCostBreakdown(path, allLayers);
+}
+
+/**
+ * Switch between action assembly tabs
+ */
+function switchActionTab(tabName) {
+    // Hide all tabs
+    document.querySelectorAll('.action-tab-content').forEach(tab => {
+        tab.style.display = 'none';
+        tab.classList.remove('active');
+    });
+    
+    // Remove active state from all tab buttons
+    document.querySelectorAll('.action-tab').forEach(btn => {
+        btn.style.color = '#94a3b8';
+        btn.style.borderBottom = '2px solid transparent';
+        btn.classList.remove('active');
+    });
+    
+    // Show selected tab
+    const selectedTab = document.querySelector(`.action-tab-content[data-tab="${tabName}"]`);
+    if (selectedTab) {
+        selectedTab.style.display = 'flex';
+        selectedTab.classList.add('active');
+    }
+    
+    // Highlight selected tab button
+    const selectedBtn = document.querySelector(`.action-tab[data-tab="${tabName}"]`);
+    if (selectedBtn) {
+        selectedBtn.style.color = '#e2e8f0';
+        selectedBtn.style.borderBottom = '2px solid #3b82f6';
+        selectedBtn.classList.add('active');
+    }
+}
+
+/**
+ * Populate action cost breakdown in the costs tab
+ */
+function populateActionCostBreakdown(path, allLayers) {
+    const container = document.getElementById('action-costs-breakdown');
+    if (!container) return;
+    
+    try {
+        // Get cost analysis for this action
+        const costAnalysis = getActionCostAnalysis(path, allLayers);
+        
+        if (!costAnalysis || !costAnalysis.layerBreakdown) {
+            container.innerHTML = '<div style="color: #64748b; font-size: 12px; text-align: center; padding: 20px;">No cost data available</div>';
+            return;
+        }
+        
+        container.innerHTML = '';
+        
+        // Summary cards
+        const summaryDiv = document.createElement('div');
+        summaryDiv.style.cssText = `
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 12px;
+        `;
+        
+        // Cost per use
+        const perUseCard = document.createElement('div');
+        perUseCard.style.cssText = `
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 4px;
+            padding: 10px;
+        `;
+        perUseCard.innerHTML = `
+            <div style="color: #94a3b8; font-size: 10px; margin-bottom: 4px;">Per Use</div>
+            <div style="color: #f59e0b; font-size: 13px; font-weight: 600;">${formatCost(costAnalysis.costPerUse.variable, 'USD', true)}</div>
+            <div style="color: #64748b; font-size: 10px; margin-top: 2px;">Variable only</div>
+        `;
+        summaryDiv.appendChild(perUseCard);
+        
+        // Monthly cost
+        const monthlyCard = document.createElement('div');
+        monthlyCard.style.cssText = `
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 4px;
+            padding: 10px;
+        `;
+        monthlyCard.innerHTML = `
+            <div style="color: #94a3b8; font-size: 10px; margin-bottom: 4px;">Monthly</div>
+            <div style="color: #10b981; font-size: 13px; font-weight: 600;">${formatCost(costAnalysis.monthlyCost.total)}</div>
+            <div style="color: #64748b; font-size: 10px; margin-top: 2px;">Fixed + Variable</div>
+        `;
+        summaryDiv.appendChild(monthlyCard);
+        
+        container.appendChild(summaryDiv);
+        
+        // Layer breakdown
+        const breakdownTitle = document.createElement('div');
+        breakdownTitle.style.cssText = `
+            color: #94a3b8;
+            font-size: 11px;
+            font-weight: 500;
+            margin-bottom: 8px;
+            margin-top: 8px;
+        `;
+        breakdownTitle.textContent = 'Cost by Layer';
+        container.appendChild(breakdownTitle);
+        
+        // Layer breakdown items
+        Object.entries(costAnalysis.layerBreakdown).forEach(([layerId, breakdown]) => {
+            const layerItem = document.createElement('div');
+            layerItem.style.cssText = `
+                background: #0f172a;
+                border: 1px solid #334155;
+                border-radius: 4px;
+                padding: 10px;
+                margin-bottom: 8px;
+            `;
+            
+            const layerName = document.createElement('div');
+            layerName.style.cssText = `
+                color: #e2e8f0;
+                font-size: 12px;
+                font-weight: 500;
+                margin-bottom: 6px;
+            `;
+            layerName.textContent = breakdown.layerName;
+            layerItem.appendChild(layerName);
+            
+            // Cost details grid
+            const detailsGrid = document.createElement('div');
+            detailsGrid.style.cssText = `
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 8px;
+                font-size: 11px;
+            `;
+            
+            // Fixed cost
+            const fixedDiv = document.createElement('div');
+            fixedDiv.innerHTML = `
+                <div style="color: #94a3b8; margin-bottom: 2px;">Fixed</div>
+                <div style="color: #3b82f6; font-weight: 500;">${formatCost(breakdown.fixedCostMonthly)}</div>
+            `;
+            detailsGrid.appendChild(fixedDiv);
+            
+            // Variable cost per use
+            const varDiv = document.createElement('div');
+            varDiv.innerHTML = `
+                <div style="color: #94a3b8; margin-bottom: 2px;">Variable/Use</div>
+                <div style="color: #f59e0b; font-weight: 500;">${formatCost(breakdown.variableCostPerUse, 'USD', true)}</div>
+            `;
+            detailsGrid.appendChild(varDiv);
+            
+            layerItem.appendChild(detailsGrid);
+            
+            // Allocation note
+            if (breakdown.allocationNote) {
+                const noteDiv = document.createElement('div');
+                noteDiv.style.cssText = `
+                    color: #64748b;
+                    font-size: 10px;
+                    margin-top: 6px;
+                    padding-top: 6px;
+                    border-top: 1px solid #334155;
+                `;
+                noteDiv.textContent = breakdown.allocationNote;
+                layerItem.appendChild(noteDiv);
+            }
+            
+            container.appendChild(layerItem);
+        });
+        
+    } catch (error) {
+        console.error('Error populating action cost breakdown:', error);
+        container.innerHTML = `<div style="color: #ef4444; font-size: 12px;">Error loading cost data</div>`;
+    }
 }
 
 /**
@@ -3141,6 +3542,7 @@ function importActionsFromConnections() {
     generatedActions.forEach(action => {
         const pathKey = action.layersInvolved.join('->');
         if (!existingPaths.has(pathKey)) {
+            action.source = 'imported';  // Track that this was imported from connections
             project.usePaths.push(action);
             existingPaths.add(pathKey);
             importedCount++;

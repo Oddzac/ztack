@@ -266,4 +266,185 @@ class ProjectValidator {
         
         return originalLength !== usePath.layersInvolved.length;
     }
+    
+    /**
+     * Validate cost models for all layers and substacks
+     */
+    validateCostModels(project) {
+        const errors = [];
+        
+        if (!project || !project.layers) {
+            return { isValid: true, errors: [] };
+        }
+        
+        project.layers.forEach((layer, layerIndex) => {
+            this.validateLayerCostModel(layer, errors, `Layer ${layerIndex}: ${layer.name}`);
+            
+            if (layer.substacks && Array.isArray(layer.substacks)) {
+                layer.substacks.forEach((substack, substackIndex) => {
+                    this.validateLayerCostModel(substack, errors, `Layer ${layerIndex}: ${layer.name} > Substack ${substackIndex}: ${substack.name}`);
+                });
+            }
+        });
+        
+        return {
+            isValid: errors.length === 0,
+            errors: errors
+        };
+    }
+    
+    /**
+     * Validate a single layer's cost model
+     */
+    validateLayerCostModel(layer, errors, context) {
+        if (!layer.costModel) {
+            return;
+        }
+        
+        const cm = layer.costModel;
+        
+        // Check required fields
+        if (cm.currency === undefined || cm.currency === null) {
+            errors.push({
+                type: 'invalid-cost-model',
+                severity: 'warning',
+                context: context,
+                message: 'Cost model missing currency'
+            });
+        }
+        
+        if (cm.period === undefined || cm.period === null) {
+            errors.push({
+                type: 'invalid-cost-model',
+                severity: 'warning',
+                context: context,
+                message: 'Cost model missing period'
+            });
+        }
+        
+        // Check fixed cost
+        if (typeof cm.fixedCost !== 'number' || cm.fixedCost < 0) {
+            errors.push({
+                type: 'invalid-cost-model',
+                severity: 'warning',
+                context: context,
+                message: 'Fixed cost must be a non-negative number'
+            });
+        }
+        
+        // Check variable cost
+        if (typeof cm.variableCost !== 'number' || cm.variableCost < 0) {
+            errors.push({
+                type: 'invalid-cost-model',
+                severity: 'warning',
+                context: context,
+                message: 'Variable cost must be a non-negative number'
+            });
+        }
+        
+        // Check variable unit if variable cost > 0
+        if (cm.variableCost > 0) {
+            if (!cm.variableUnit || cm.variableUnit === '') {
+                errors.push({
+                    type: 'invalid-cost-model',
+                    severity: 'warning',
+                    context: context,
+                    message: 'Variable cost specified but no unit defined'
+                });
+            } else if (!VARIABLE_COST_UNITS[cm.variableUnit]) {
+                errors.push({
+                    type: 'invalid-cost-model',
+                    severity: 'warning',
+                    context: context,
+                    message: `Unknown variable cost unit: ${cm.variableUnit}`
+                });
+            }
+        }
+    }
+    
+    /**
+     * Validate action/use path cost data
+     */
+    validateActionCostData(project) {
+        const errors = [];
+        
+        if (!project || !project.usePaths) {
+            return { isValid: true, errors: [] };
+        }
+        
+        const allLayerIds = this.getAllLayerIds(project);
+        
+        project.usePaths.forEach((usePath, pathIndex) => {
+            const context = `Use Path ${pathIndex}: ${usePath.name}`;
+            
+            // Check if resourceConsumption exists (optional for now, required in Phase 2)
+            if (usePath.resourceConsumption && typeof usePath.resourceConsumption === 'object') {
+                Object.entries(usePath.resourceConsumption).forEach(([layerId, consumption]) => {
+                    if (!allLayerIds.includes(parseInt(layerId))) {
+                        errors.push({
+                            type: 'orphaned-reference',
+                            severity: 'warning',
+                            context: context,
+                            message: `Resource consumption references non-existent layer: ${layerId}`
+                        });
+                    }
+                    
+                    if (!consumption.unit || !VARIABLE_COST_UNITS[consumption.unit]) {
+                        errors.push({
+                            type: 'invalid-cost-model',
+                            severity: 'warning',
+                            context: context,
+                            message: `Invalid resource consumption unit for layer ${layerId}: ${consumption.unit}`
+                        });
+                    }
+                    
+                    if (typeof consumption.quantity !== 'number' || consumption.quantity < 0) {
+                        errors.push({
+                            type: 'invalid-cost-model',
+                            severity: 'warning',
+                            context: context,
+                            message: `Invalid resource consumption quantity for layer ${layerId}`
+                        });
+                    }
+                });
+            }
+            
+            // Check if usageAssumptions exists (optional for now, required in Phase 2)
+            if (usePath.usageAssumptions && typeof usePath.usageAssumptions === 'object') {
+                const ua = usePath.usageAssumptions;
+                
+                if (typeof ua.estimatedCallsPerMonth !== 'number' || ua.estimatedCallsPerMonth < 0) {
+                    errors.push({
+                        type: 'invalid-cost-model',
+                        severity: 'warning',
+                        context: context,
+                        message: 'Invalid estimatedCallsPerMonth'
+                    });
+                }
+                
+                if (typeof ua.estimatedUsersPerMonth !== 'number' || ua.estimatedUsersPerMonth < 0) {
+                    errors.push({
+                        type: 'invalid-cost-model',
+                        severity: 'warning',
+                        context: context,
+                        message: 'Invalid estimatedUsersPerMonth'
+                    });
+                }
+                
+                if (typeof ua.callsPerUser !== 'number' || ua.callsPerUser < 0) {
+                    errors.push({
+                        type: 'invalid-cost-model',
+                        severity: 'warning',
+                        context: context,
+                        message: 'Invalid callsPerUser'
+                    });
+                }
+            }
+        });
+        
+        return {
+            isValid: errors.length === 0,
+            errors: errors
+        };
+    }
 }

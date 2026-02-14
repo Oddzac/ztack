@@ -144,14 +144,177 @@ function migrateProjectUsePaths(project) {
     });
 }
 
+// Migration function: Standardize cost model to use canonical variable cost units
+// Maps old variable units to new standardized units
+function migrateCostModel(costModel) {
+    if (!costModel) return costModel;
+    
+    // Map old per-1M units to new per-use units
+    const unitMapping = {
+        // Old per-1M units → New per-use units
+        'per-1m-requests': 'per-request',
+        'per 1M requests': 'per-request',
+        'per-1m-calls': 'per-call',
+        'per 1M calls': 'per-call',
+        'per-1m-logs': 'per-log-entry',
+        'per 1M logs': 'per-log-entry',
+        'per-1m-indexed': 'per-indexed-item',
+        'per 1M indexed': 'per-indexed-item',
+        'per-1m-reads': 'per-read',
+        'per 1M reads': 'per-read',
+        'per-1m-writes': 'per-write',
+        'per 1M writes': 'per-write',
+        // Storage units (already per-use)
+        'per-gb-month': 'per-gb-month',
+        'per GB/month': 'per-gb-month',
+        'per-gb-transferred': 'per-gb-transferred',
+        'per GB transferred': 'per-gb-transferred',
+        // Compute units (already per-use)
+        'per-gb-second': 'per-gb-second',
+        'per GB-second': 'per-gb-second',
+        'per-vcpu-hour': 'per-vcpu-hour',
+        'per vCPU-hour': 'per-vcpu-hour',
+        // Legacy/generic
+        'per request': 'per-request',
+        'per-request': 'per-request',
+        'per SMS': 'per-use',
+        'per hour': 'per-vcpu-hour',
+        'per-hour': 'per-vcpu-hour',
+        'per GB': 'per-gb-month',
+        'per-gb': 'per-gb-month'
+    };
+    
+    const oldUnit = costModel.variableUnit || '';
+    const newUnit = unitMapping[oldUnit] || 'per-use';
+    
+    // Convert variable cost from per-1M to per-use if needed
+    let variableCost = costModel.variableCost || 0;
+    const per1MUnits = ['per-1m-requests', 'per 1M requests', 'per-1m-calls', 'per 1M calls',
+                        'per-1m-logs', 'per 1M logs', 'per-1m-indexed', 'per 1M indexed',
+                        'per-1m-reads', 'per 1M reads', 'per-1m-writes', 'per 1M writes'];
+    
+    if (per1MUnits.includes(oldUnit)) {
+        // Convert from per-1M to per-use: divide by 1,000,000
+        variableCost = variableCost / 1000000;
+    }
+    
+    return {
+        currency: costModel.currency || 'USD',
+        period: costModel.period || 'month',
+        fixedCost: costModel.fixedCost || 0,
+        variableCost: variableCost,
+        variableUnit: newUnit,
+        notes: costModel.notes || ''
+    };
+}
+
+// Apply cost model migration to all layers and substacks
+function migrateProjectCostModels(project) {
+    if (!project || !project.layers) return project;
+    
+    project.layers.forEach(layer => {
+        if (layer.costModel) {
+            layer.costModel = migrateCostModel(layer.costModel);
+        }
+        
+        // Migrate substacks
+        if (layer.substacks && Array.isArray(layer.substacks)) {
+            layer.substacks.forEach(substack => {
+                if (substack.costModel) {
+                    substack.costModel = migrateCostModel(substack.costModel);
+                }
+            });
+        }
+    });
+    
+    return project;
+}
+
 // Apply all migrations to a project
 function migrateProject(project) {
     if (!project) return;
     
     migrateProjectConnections(project);
     migrateProjectUsePaths(project);
+    migrateProjectCostModels(project);
     
     return project;
+}
+
+// Helper function to ensure all templates have standardized cost models
+function ensureTemplatesStandardized() {
+    for (const templateKey in TEMPLATES) {
+        const template = TEMPLATES[templateKey];
+        if (template.layers) {
+            template.layers.forEach(layer => {
+                if (layer.costModel) {
+                    migrateCostModel(layer.costModel);
+                    // Ensure fixedCostDescription exists
+                    if (!layer.costModel.fixedCostDescription) {
+                        layer.costModel.fixedCostDescription = layer.costModel.notes || '';
+                    }
+                }
+                if (layer.substacks) {
+                    layer.substacks.forEach(substack => {
+                        if (substack.costModel) {
+                            migrateCostModel(substack.costModel);
+                            if (!substack.costModel.fixedCostDescription) {
+                                substack.costModel.fixedCostDescription = substack.costModel.notes || '';
+                            }
+                        }
+                    });
+                }
+            });
+        }
+    }
+}
+
+// Load templates from external JSON files with cache busting and error handling
+async function loadTemplatesFromFiles() {
+    const templateFiles = ['microservices', 'three-tier', 'serverless', 'enterprise'];
+    const loadedTemplates = {};
+    const failedTemplates = [];
+    
+    // Cache busting: add timestamp to prevent stale template caching
+    const cacheBuster = `?v=${Date.now()}`;
+    
+    for (const templateName of templateFiles) {
+        try {
+            const response = await fetch(`templates/${templateName}.json${cacheBuster}`);
+            if (response.ok) {
+                const template = await response.json();
+                loadedTemplates[templateName === 'three-tier' ? 'threeLayer' : templateName] = template;
+                console.log(`✓ Loaded template: ${templateName}`);
+            } else {
+                failedTemplates.push(templateName);
+                console.warn(`Failed to load template ${templateName}: HTTP ${response.status}`);
+            }
+        } catch (error) {
+            failedTemplates.push(templateName);
+            console.warn(`Failed to load template ${templateName}:`, error.message);
+        }
+    }
+    
+    // Merge loaded templates with existing TEMPLATES
+    Object.assign(TEMPLATES, loadedTemplates);
+    ensureTemplatesStandardized();
+    
+    // Report loading status
+    const loadedCount = Object.keys(loadedTemplates).length;
+    const totalCount = templateFiles.length;
+    
+    if (loadedCount === totalCount) {
+        console.log(`✓ All ${totalCount} templates loaded successfully`);
+    } else if (loadedCount > 0) {
+        console.warn(`⚠ Loaded ${loadedCount}/${totalCount} templates. Failed: ${failedTemplates.join(', ')}`);
+        // Store warning for UI display
+        window.templateLoadingWarning = `Some templates failed to load: ${failedTemplates.join(', ')}. Using fallback templates if available.`;
+    } else {
+        console.error(`✗ Failed to load any templates. Using fallback templates only.`);
+        window.templateLoadingError = 'Failed to load templates from templates/ directory. Using embedded fallback templates.';
+    }
+    
+    return { loadedCount, totalCount, failedTemplates };
 }
 
 // Connection type definitions
@@ -166,18 +329,134 @@ const CONNECTION_TYPES = {
     'Async': { label: 'Asynchronous', color: '#94a3b8', pattern: [3, 3], width: 1.5 }
 };
 
+// Standardized variable cost units (all on per-use basis)
+const VARIABLE_COST_UNITS = {
+    // Compute/Request-based (per single request/call)
+    'per-request': {
+        label: 'Per Request',
+        category: 'requests',
+        description: 'Cost per API request or function invocation',
+        multiplier: 1
+    },
+    'per-call': {
+        label: 'Per Call',
+        category: 'requests',
+        description: 'Cost per service call',
+        multiplier: 1
+    },
+    
+    // Storage-based
+    'per-gb-month': {
+        label: 'Per GB/Month',
+        category: 'storage',
+        description: 'Cost per gigabyte stored per month',
+        multiplier: 1
+    },
+    'per-gb-transferred': {
+        label: 'Per GB Transferred',
+        category: 'storage',
+        description: 'Cost per gigabyte of data transfer',
+        multiplier: 1
+    },
+    
+    // Data-based (per single item)
+    'per-log-entry': {
+        label: 'Per Log Entry',
+        category: 'data',
+        description: 'Cost per log entry ingested',
+        multiplier: 1
+    },
+    'per-indexed-item': {
+        label: 'Per Indexed Item',
+        category: 'data',
+        description: 'Cost per indexed item',
+        multiplier: 1
+    },
+    
+    // Compute-based
+    'per-gb-second': {
+        label: 'Per GB-Second',
+        category: 'compute',
+        description: 'Cost per gigabyte-second of compute (serverless)',
+        multiplier: 1
+    },
+    'per-vcpu-hour': {
+        label: 'Per vCPU-Hour',
+        category: 'compute',
+        description: 'Cost per virtual CPU hour',
+        multiplier: 1
+    },
+    
+    // Database-based (per single operation)
+    'per-read': {
+        label: 'Per Read',
+        category: 'database',
+        description: 'Cost per read operation',
+        multiplier: 1
+    },
+    'per-write': {
+        label: 'Per Write',
+        category: 'database',
+        description: 'Cost per write operation',
+        multiplier: 1
+    },
+    
+    // Generic
+    'per-use': {
+        label: 'Per Use',
+        category: 'generic',
+        description: 'Cost per use',
+        multiplier: 1
+    }
+};
+
 // Cost model configuration
 const COST_CURRENCIES = ['USD', 'EUR', 'GBP', 'JPY', 'AUD', 'CAD'];
-const COST_PERIODS = ['month', 'year', 'per-request', 'per-gb', 'per-hour'];
+const COST_PERIODS = ['month', 'year'];
 
-// Default cost model template
+// Default cost model template (updated for new structure)
 const DEFAULT_COST_MODEL = {
     currency: 'USD',
     period: 'month',
     fixedCost: 0,
+    fixedCostDescription: '',
     variableCost: 0,
-    variableUnit: '',
+    variableUnit: 'per-1m-requests',  // Default to standardized unit
     notes: ''
+};
+
+// Default action cost structure (for tracking resource consumption)
+const DEFAULT_ACTION_COST = {
+    // Resource consumption per layer (how many units of each resource this action consumes)
+    resourceConsumption: {
+        // [layerId]: { unit: 'per-1m-requests', quantity: 1, description: '1 API request' }
+    },
+    
+    // Usage assumptions (how often this action is used)
+    usageAssumptions: {
+        estimatedCallsPerMonth: 10000,      // How many times this action runs per month
+        estimatedUsersPerMonth: 1000,       // How many unique users trigger this
+        callsPerUser: 10                    // Average calls per user per month
+    },
+    
+    // Calculated costs (derived from resource consumption + usage assumptions)
+    calculatedCosts: {
+        costPerUse: {
+            fixed: 0,
+            variable: 0,
+            total: 0
+        },
+        monthlyCost: {
+            fixed: 0,
+            variable: 0,
+            total: 0
+        },
+        costPerUser: {
+            fixed: 0,
+            variable: 0,
+            total: 0
+        }
+    }
 };
 
 // Sample project data
@@ -200,9 +479,10 @@ const SAMPLE_PROJECT = {
                 currency: 'USD',
                 period: 'month',
                 fixedCost: 50,
+                fixedCostDescription: 'CDN + hosting',
                 variableCost: 0,
-                variableUnit: '',
-                notes: 'CDN + hosting'
+                variableUnit: 'per-1m-requests',
+                notes: ''
             },
             substacks: [
                 {
@@ -221,8 +501,9 @@ const SAMPLE_PROJECT = {
                         currency: 'USD',
                         period: 'month',
                         fixedCost: 0,
+                        fixedCostDescription: '',
                         variableCost: 0,
-                        variableUnit: '',
+                        variableUnit: 'per-1m-requests',
                         notes: ''
                     }
                 },
@@ -242,8 +523,9 @@ const SAMPLE_PROJECT = {
                         currency: 'USD',
                         period: 'month',
                         fixedCost: 0,
+                        fixedCostDescription: '',
                         variableCost: 0,
-                        variableUnit: '',
+                        variableUnit: 'per-1m-requests',
                         notes: ''
                     }
                 }
@@ -265,9 +547,10 @@ const SAMPLE_PROJECT = {
                 currency: 'USD',
                 period: 'month',
                 fixedCost: 400,
+                fixedCostDescription: 'Compute + bandwidth',
                 variableCost: 0.00002,
-                variableUnit: 'per 1M requests',
-                notes: 'Compute + bandwidth'
+                variableUnit: 'per-1m-requests',
+                notes: ''
             },
             substacks: []
         },
@@ -287,9 +570,10 @@ const SAMPLE_PROJECT = {
                 currency: 'USD',
                 period: 'month',
                 fixedCost: 300,
+                fixedCostDescription: 'Compute resources',
                 variableCost: 0,
-                variableUnit: '',
-                notes: 'Compute resources'
+                variableUnit: 'per-1m-requests',
+                notes: ''
             },
             substacks: []
         },
@@ -309,228 +593,244 @@ const SAMPLE_PROJECT = {
                 currency: 'USD',
                 period: 'month',
                 fixedCost: 250,
+                fixedCostDescription: 'Instance + storage + I/O',
                 variableCost: 0.0001,
-                variableUnit: 'per GB stored',
-                notes: 'Instance + storage + I/O'
+                variableUnit: 'per-gb-month',
+                notes: ''
             },
             substacks: []
         }
     ]
 };
 
-// Template projects
-const TEMPLATES = {
-    microservices: {
-        name: 'Microservices Architecture',
-        layers: [
-            { id: 1, name: 'API Gateway', type: 'API', status: 'Active', description: 'Entry point for all requests', technology: 'Kong/NGINX', responsibilities: 'Route, authenticate, rate limit', connections: [{ targetId: 2, type: 'HTTP' }, { targetId: 3, type: 'HTTP' }, { targetId: 4, type: 'HTTP' }], dependencies: [], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 500, variableCost: 0.00001, variableUnit: 'per 1M requests', notes: 'Gateway infrastructure' }, substacks: [] },
-            { id: 2, name: 'User Service', type: 'Backend', status: 'Active', description: 'User management', technology: 'Node.js', responsibilities: 'User CRUD operations', connections: [{ targetId: 5, type: 'Database' }], dependencies: [1], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 200, variableCost: 0, variableUnit: '', notes: 'Microservice compute' }, substacks: [] },
-            { id: 3, name: 'Order Service', type: 'Backend', status: 'Active', description: 'Order processing', technology: 'Java Spring', responsibilities: 'Order management', connections: [{ targetId: 6, type: 'Database' }], dependencies: [1], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 250, variableCost: 0, variableUnit: '', notes: 'Microservice compute' }, substacks: [] },
-            { id: 4, name: 'Payment Service', type: 'Backend', status: 'Active', description: 'Payment processing', technology: 'Python', responsibilities: 'Handle payments', connections: [{ targetId: 7, type: 'Database' }], dependencies: [1], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 300, variableCost: 0, variableUnit: '', notes: 'Microservice compute' }, substacks: [] },
-            { id: 5, name: 'User DB', type: 'Database', status: 'Active', description: 'User data', technology: 'PostgreSQL', responsibilities: 'Store user data', connections: [], dependencies: [2], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 150, variableCost: 0.0001, variableUnit: 'per GB', notes: 'Database instance' }, substacks: [] },
-            { id: 6, name: 'Order DB', type: 'Database', status: 'Active', description: 'Order data', technology: 'MongoDB', responsibilities: 'Store orders', connections: [], dependencies: [3], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 200, variableCost: 0.00005, variableUnit: 'per 1M ops', notes: 'NoSQL database' }, substacks: [] },
-            { id: 7, name: 'Payment DB', type: 'Database', status: 'Active', description: 'Payment data', technology: 'PostgreSQL', responsibilities: 'Store transactions', connections: [], dependencies: [4], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 150, variableCost: 0.0001, variableUnit: 'per GB', notes: 'Database instance' }, substacks: [] }
-        ],
-        usePaths: [
-            {
-                id: 'login',
-                name: 'User Login',
-                description: 'User authentication',
-                layersInvolved: [1, 2, 5],
-                avgCallsPerLayer: { '1': 1, '2': 1, '5': 1 },
-                notes: 'Login through API gateway to user service'
-            },
-            {
-                id: 'create-order',
-                name: 'Create Order',
-                description: 'Place a new order',
-                layersInvolved: [1, 3, 6],
-                avgCallsPerLayer: { '1': 1, '3': 1, '6': 1 },
-                notes: 'Order creation through API gateway'
-            },
-            {
-                id: 'process-payment',
-                name: 'Process Payment',
-                description: 'Payment processing',
-                layersInvolved: [1, 4, 7],
-                avgCallsPerLayer: { '1': 1, '4': 1, '7': 1 },
-                notes: 'Payment through API gateway to payment service'
-            }
-        ]
-    },
-    threeLayer: {
-        name: 'Three-Tier Architecture',
-        layers: [
-            { id: 1, name: 'Web Frontend', type: 'Frontend', status: 'Active', description: 'User interface', technology: 'React', responsibilities: 'Display UI', connections: [{ targetId: 2, type: 'HTTP' }], dependencies: [], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 75, variableCost: 0, variableUnit: '', notes: 'CDN + hosting' }, substacks: [] },
-            { id: 2, name: 'Application Server', type: 'Backend', status: 'Active', description: 'Business logic', technology: 'Java Spring Boot', responsibilities: 'Process requests', connections: [{ targetId: 3, type: 'Database' }], dependencies: [1], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 350, variableCost: 0, variableUnit: '', notes: 'Application server' }, substacks: [] },
-            { id: 3, name: 'Database', type: 'Database', status: 'Active', description: 'Data storage', technology: 'MySQL', responsibilities: 'Persist data', connections: [], dependencies: [2], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 200, variableCost: 0.00008, variableUnit: 'per GB', notes: 'Database instance' }, substacks: [] }
-        ],
-        usePaths: [
-            {
-                id: 'user-request',
-                name: 'User Request',
-                description: 'Standard user request flow',
-                layersInvolved: [1, 2, 3],
-                avgCallsPerLayer: { '1': 1, '2': 1, '3': 1 },
-                notes: 'Request from frontend through app server to database'
-            },
-            {
-                id: 'bulk-operation',
-                name: 'Bulk Operation',
-                description: 'Batch processing',
-                layersInvolved: [2, 3],
-                avgCallsPerLayer: { '2': 1, '3': 5 },
-                notes: 'Multiple database queries from app server'
-            }
-        ]
-    },
-    serverless: {
-        name: 'Serverless Architecture',
-        layers: [
-            { id: 1, name: 'CloudFront CDN', type: 'Frontend', status: 'Active', description: 'Content delivery', technology: 'AWS CloudFront', responsibilities: 'Serve static assets', connections: [{ targetId: 2, type: 'HTTP' }], dependencies: [], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 0, variableCost: 0.085, variableUnit: 'per GB', notes: 'Pay-per-use CDN' }, substacks: [] },
-            { id: 2, name: 'API Gateway', type: 'API', status: 'Active', description: 'API management', technology: 'AWS API Gateway', responsibilities: 'Route API calls', connections: [{ targetId: 3, type: 'HTTP' }, { targetId: 4, type: 'HTTP' }, { targetId: 5, type: 'HTTP' }], dependencies: [1], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 0, variableCost: 0.0000035, variableUnit: 'per request', notes: 'Serverless API' }, substacks: [] },
-            { id: 3, name: 'Auth Lambda', type: 'Backend', status: 'Active', description: 'Authentication', technology: 'AWS Lambda', responsibilities: 'User auth', connections: [{ targetId: 6, type: 'Database' }], dependencies: [2], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 0, variableCost: 0.0000002, variableUnit: 'per GB-second', notes: 'Serverless compute' }, substacks: [] },
-            { id: 4, name: 'Data Lambda', type: 'Backend', status: 'Active', description: 'Data processing', technology: 'AWS Lambda', responsibilities: 'CRUD operations', connections: [{ targetId: 6, type: 'Database' }], dependencies: [2], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 0, variableCost: 0.0000002, variableUnit: 'per GB-second', notes: 'Serverless compute' }, substacks: [] },
-            { id: 5, name: 'File Lambda', type: 'Backend', status: 'Active', description: 'File handling', technology: 'AWS Lambda', responsibilities: 'File uploads', connections: [{ targetId: 7, type: 'Database' }], dependencies: [2], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 0, variableCost: 0.0000002, variableUnit: 'per GB-second', notes: 'Serverless compute' }, substacks: [] },
-            { id: 6, name: 'DynamoDB', type: 'Database', status: 'Active', description: 'NoSQL database', technology: 'AWS DynamoDB', responsibilities: 'Store data', connections: [], dependencies: [3, 4], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 0, variableCost: 0.00000125, variableUnit: 'per read unit', notes: 'On-demand pricing' }, substacks: [] },
-            { id: 7, name: 'S3 Storage', type: 'Database', status: 'Active', description: 'Object storage', technology: 'AWS S3', responsibilities: 'Store files', connections: [], dependencies: [5], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 0, variableCost: 0.023, variableUnit: 'per GB', notes: 'Object storage' }, substacks: [] }
-        ],
-        usePaths: [
-            {
-                id: 'authenticate',
-                name: 'Authenticate User',
-                description: 'User authentication flow',
-                layersInvolved: [1, 2, 3, 6],
-                avgCallsPerLayer: { '1': 1, '2': 1, '3': 1, '6': 1 },
-                notes: 'CDN to API Gateway to Auth Lambda to DynamoDB'
-            },
-            {
-                id: 'read-data',
-                name: 'Read Data',
-                description: 'Fetch data from database',
-                layersInvolved: [1, 2, 4, 6],
-                avgCallsPerLayer: { '1': 1, '2': 1, '4': 1, '6': 1 },
-                notes: 'Data retrieval through serverless functions'
-            },
-            {
-                id: 'upload-file',
-                name: 'Upload File',
-                description: 'File upload to S3',
-                layersInvolved: [1, 2, 5, 7],
-                avgCallsPerLayer: { '1': 1, '2': 1, '5': 1, '7': 1 },
-                notes: 'File upload through Lambda to S3'
-            }
-        ]
-    },
-    enterprise: {
-            name: 'Enterprise E-Commerce Platform',
-            layers: [
-                { id: 1, name: 'Web Application', type: 'Frontend', status: 'Active', description: 'Customer-facing web app', technology: 'Next.js 14, TypeScript', responsibilities: 'Product browsing, checkout, user account', connections: [{ targetId: 3, type: 'HTTP' }], dependencies: [], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 80, variableCost: 0, variableUnit: '', notes: 'Framework and base hosting' }, substacks: [
-                    { id: '1_1', name: 'Product Catalog UI', type: 'Frontend', status: 'Active', description: 'Product display components', technology: 'React Server Components', responsibilities: 'Product listings, search, filters', connections: [], dependencies: [], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 50, variableCost: 0.0001, variableUnit: 'per 1M page views', notes: 'CDN for product pages' } },
-                    { id: '1_2', name: 'Shopping Cart', type: 'Frontend', status: 'Active', description: 'Cart management', technology: 'React Context', responsibilities: 'Add/remove items, calculate totals', connections: [], dependencies: [], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 30, variableCost: 0, variableUnit: '', notes: 'Client-side state management' } },
-                    { id: '1_3', name: 'Checkout Flow', type: 'Frontend', status: 'Active', description: 'Payment and shipping', technology: 'React Hook Form', responsibilities: 'Address, payment, order confirmation', connections: [], dependencies: [], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 40, variableCost: 0, variableUnit: '', notes: 'Form validation and UI' } }
-                ]},
-                { id: 2, name: 'Mobile App', type: 'Frontend', status: 'Active', description: 'iOS and Android apps', technology: 'React Native', responsibilities: 'Mobile shopping experience', connections: [{ targetId: 3, type: 'HTTP' }], dependencies: [], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 20, variableCost: 0, variableUnit: '', notes: 'App store distribution fees' }, substacks: [
-                    { id: '2_1', name: 'Native Modules', type: 'Frontend', status: 'Active', description: 'Platform-specific features', technology: 'Swift, Kotlin', responsibilities: 'Camera, push notifications, biometrics', connections: [], dependencies: [], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 60, variableCost: 0, variableUnit: '', notes: 'Native development tools' } },
-                    { id: '2_2', name: 'Offline Mode', type: 'Frontend', status: 'Active', description: 'Offline functionality', technology: 'AsyncStorage, SQLite', responsibilities: 'Cache products, sync cart', connections: [], dependencies: [], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 20, variableCost: 0, variableUnit: '', notes: 'Local storage management' } }
-                ]},
-                { id: 3, name: 'API Gateway', type: 'API', status: 'Active', description: 'Unified API entry point', technology: 'Kong Gateway', responsibilities: 'Authentication, rate limiting, routing', connections: [{ targetId: 4, type: 'gRPC' }, { targetId: 5, type: 'HTTP' }, { targetId: 6, type: 'HTTP' }, { targetId: 7, type: 'HTTP' }, { targetId: 8, type: 'HTTP' }], dependencies: [1, 2], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 200, variableCost: 0.00001, variableUnit: 'per 1M requests', notes: 'Kong gateway base cost' }, substacks: [
-                    { id: '3_1', name: 'Auth Middleware', type: 'API', status: 'Active', description: 'JWT validation', technology: 'Kong JWT Plugin', responsibilities: 'Verify tokens, extract user claims', connections: [], dependencies: [], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 100, variableCost: 0, variableUnit: '', notes: 'Auth service' } },
-                    { id: '3_2', name: 'Rate Limiter', type: 'API', status: 'Active', description: 'Request throttling', technology: 'Kong Rate Limiting', responsibilities: 'Prevent abuse, enforce quotas', connections: [], dependencies: [], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 50, variableCost: 0, variableUnit: '', notes: 'Rate limiting service' } },
-                    { id: '3_3', name: 'Request Logger', type: 'API', status: 'Active', description: 'Audit logging', technology: 'Kong File Log', responsibilities: 'Log all API requests', connections: [], dependencies: [], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 75, variableCost: 0.00001, variableUnit: 'per 1M logs', notes: 'Logging infrastructure' } }
-                ]},
-                { id: 4, name: 'Product Service', type: 'Backend', status: 'Active', description: 'Product catalog management', technology: 'Go, gRPC', responsibilities: 'Product CRUD, search, inventory', connections: [{ targetId: 9, type: 'Database' }, { targetId: 11, type: 'Event' }], dependencies: [3], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 150, variableCost: 0, variableUnit: '', notes: 'Microservice base compute' }, substacks: [
-                    { id: '4_1', name: 'Search Engine', type: 'Backend', status: 'Active', description: 'Full-text search', technology: 'Elasticsearch', responsibilities: 'Index products, fuzzy search', connections: [], dependencies: [], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 250, variableCost: 0.0001, variableUnit: 'per GB indexed', notes: 'Elasticsearch cluster' } },
-                    { id: '4_2', name: 'Image Processor', type: 'Backend', status: 'Active', description: 'Image optimization', technology: 'Sharp, ImageMagick', responsibilities: 'Resize, compress, generate thumbnails', connections: [], dependencies: [], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 150, variableCost: 0.00001, variableUnit: 'per 1M images', notes: 'Image processing compute' } },
-                    { id: '4_3', name: 'Inventory Tracker', type: 'Backend', status: 'Active', description: 'Stock management', technology: 'Redis', responsibilities: 'Real-time stock levels', connections: [], dependencies: [], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 200, variableCost: 0, variableUnit: '', notes: 'Redis cache cluster' } }
-                ]},
-                { id: 5, name: 'Order Service', type: 'Backend', status: 'Active', description: 'Order processing', technology: 'Java Spring Boot', responsibilities: 'Order creation, status tracking', connections: [{ targetId: 6, type: 'Async' }, { targetId: 10, type: 'Database' }, { targetId: 11, type: 'Event' }], dependencies: [3], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 200, variableCost: 0, variableUnit: '', notes: 'Microservice base compute' }, substacks: [
-                    { id: '5_1', name: 'Order Validator', type: 'Backend', status: 'Active', description: 'Validation logic', technology: 'Spring Validation', responsibilities: 'Validate order data, check inventory', connections: [], dependencies: [], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 100, variableCost: 0, variableUnit: '', notes: 'Validation service' } },
-                    { id: '5_2', name: 'Order State Machine', type: 'Backend', status: 'Active', description: 'Order workflow', technology: 'Spring State Machine', responsibilities: 'Manage order lifecycle', connections: [], dependencies: [], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 150, variableCost: 0, variableUnit: '', notes: 'Workflow engine' } },
-                    { id: '5_3', name: 'Notification Publisher', type: 'Backend', status: 'Active', description: 'Event publishing', technology: 'Kafka Producer', responsibilities: 'Publish order events', connections: [], dependencies: [], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 80, variableCost: 0, variableUnit: '', notes: 'Event publishing' } }
-                ]},
-                { id: 6, name: 'Payment Service', type: 'Backend', status: 'Active', description: 'Payment processing', technology: 'Python FastAPI', responsibilities: 'Process payments, refunds', connections: [{ targetId: 10, type: 'Database' }, { targetId: 11, type: 'Event' }], dependencies: [3, 5], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 100, variableCost: 0, variableUnit: '', notes: 'Microservice base compute' }, substacks: [
-                    { id: '6_1', name: 'Stripe Integration', type: 'Backend', status: 'Active', description: 'Credit card processing', technology: 'Stripe SDK', responsibilities: 'Charge cards, handle webhooks', connections: [], dependencies: [], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 0, variableCost: 0, variableUnit: '', notes: '' } },
-                    { id: '6_2', name: 'PayPal Integration', type: 'Backend', status: 'Active', description: 'PayPal payments', technology: 'PayPal SDK', responsibilities: 'Process PayPal transactions', connections: [], dependencies: [], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 0, variableCost: 0, variableUnit: '', notes: '' } },
-                    { id: '6_3', name: 'Fraud Detection', type: 'Backend', status: 'Active', description: 'Fraud prevention', technology: 'Scikit-learn', responsibilities: 'Score transactions, flag suspicious', connections: [], dependencies: [], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 0, variableCost: 0, variableUnit: '', notes: '' } }
-                ]},
-                { id: 7, name: 'User Service', type: 'Backend', status: 'Active', description: 'User management', technology: 'Node.js Express', responsibilities: 'User accounts, authentication', connections: [{ targetId: 10, type: 'Database' }], dependencies: [3], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 100, variableCost: 0, variableUnit: '', notes: 'Microservice base compute' }, substacks: [
-                    { id: '7_1', name: 'Auth Handler', type: 'Backend', status: 'Active', description: 'Login/signup', technology: 'Passport.js', responsibilities: 'Email/password, OAuth', connections: [], dependencies: [], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 80, variableCost: 0, variableUnit: '', notes: 'Auth service' } },
-                    { id: '7_2', name: 'Profile Manager', type: 'Backend', status: 'Active', description: 'User profiles', technology: 'Express', responsibilities: 'Update profile, preferences', connections: [], dependencies: [], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 60, variableCost: 0, variableUnit: '', notes: 'Profile service' } },
-                    { id: '7_3', name: 'Session Store', type: 'Backend', status: 'Active', description: 'Session management', technology: 'Redis', responsibilities: 'Store active sessions', connections: [], dependencies: [], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 120, variableCost: 0, variableUnit: '', notes: 'Redis session cache' } }
-                ]},
-                { id: 8, name: 'Notification Service', type: 'Backend', status: 'Active', description: 'Multi-channel notifications', technology: 'Node.js', responsibilities: 'Email, SMS, push notifications', connections: [{ targetId: 11, type: 'Message' }], dependencies: [3], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 80, variableCost: 0, variableUnit: '', notes: 'Microservice base compute' }, substacks: [
-                    { id: '8_1', name: 'Email Sender', type: 'Backend', status: 'Active', description: 'Email delivery', technology: 'SendGrid', responsibilities: 'Transactional emails', connections: [], dependencies: [], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 50, variableCost: 0.00001, variableUnit: 'per 1M emails', notes: 'SendGrid service' } },
-                    { id: '8_2', name: 'SMS Sender', type: 'Backend', status: 'Active', description: 'SMS delivery', technology: 'Twilio', responsibilities: 'Order updates via SMS', connections: [], dependencies: [], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 30, variableCost: 0.0075, variableUnit: 'per SMS', notes: 'Twilio SMS service' } },
-                    { id: '8_3', name: 'Push Sender', type: 'Backend', status: 'Active', description: 'Push notifications', technology: 'Firebase Cloud Messaging', responsibilities: 'Mobile push notifications', connections: [], dependencies: [], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 40, variableCost: 0, variableUnit: '', notes: 'Firebase service' } }
-                ]},
-                { id: 9, name: 'Product Database', type: 'Database', status: 'Active', description: 'Product catalog storage', technology: 'PostgreSQL 15', responsibilities: 'Store product data, categories', connections: [], dependencies: [4], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 400, variableCost: 0.0001, variableUnit: 'per GB', notes: 'Database instance' }, substacks: [] },
-                { id: 10, name: 'Order Database', type: 'Database', status: 'Active', description: 'Order and user data', technology: 'MongoDB', responsibilities: 'Store orders, users, sessions', connections: [], dependencies: [5, 6, 7], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 500, variableCost: 0.00005, variableUnit: 'per 1M ops', notes: 'NoSQL database' }, substacks: [] },
-                { id: 11, name: 'Message Queue', type: 'DevOps', status: 'Active', description: 'Event streaming', technology: 'Apache Kafka', responsibilities: 'Async communication between services', connections: [], dependencies: [4, 5, 6, 8], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 600, variableCost: 0, variableUnit: '', notes: 'Kafka cluster' }, substacks: [
-                    { id: '11_1', name: 'Order Events Topic', type: 'DevOps', status: 'Active', description: 'Order event stream', technology: 'Kafka Topic', responsibilities: 'Order created, updated, shipped', connections: [], dependencies: [], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 100, variableCost: 0, variableUnit: '', notes: 'Topic storage' } },
-                    { id: '11_2', name: 'Payment Events Topic', type: 'DevOps', status: 'Active', description: 'Payment event stream', technology: 'Kafka Topic', responsibilities: 'Payment success, failure, refund', connections: [], dependencies: [], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 80, variableCost: 0, variableUnit: '', notes: 'Topic storage' } },
-                    { id: '11_3', name: 'Notification Queue', type: 'DevOps', status: 'Active', description: 'Notification queue', technology: 'Kafka Topic', responsibilities: 'Queue notifications for delivery', connections: [], dependencies: [], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 60, variableCost: 0, variableUnit: '', notes: 'Topic storage' } }
-                ]},
-                { id: 12, name: 'Infrastructure', type: 'DevOps', status: 'Active', description: 'Cloud infrastructure', technology: 'AWS, Terraform', responsibilities: 'Provision and manage cloud resources', connections: [], dependencies: [], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 1000, variableCost: 0, variableUnit: '', notes: 'Infrastructure overhead' }, substacks: [
-                    { id: '12_1', name: 'Container Orchestration', type: 'DevOps', status: 'Active', description: 'Kubernetes cluster', technology: 'AWS EKS', responsibilities: 'Deploy and scale containers', connections: [], dependencies: [], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 300, variableCost: 0, variableUnit: '', notes: 'EKS cluster' } },
-                    { id: '12_2', name: 'Load Balancer', type: 'DevOps', status: 'Active', description: 'Traffic distribution', technology: 'AWS ALB', responsibilities: 'Distribute traffic, SSL termination', connections: [], dependencies: [], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 150, variableCost: 0.006, variableUnit: 'per 1M requests', notes: 'Application Load Balancer' } },
-                    { id: '12_3', name: 'Monitoring', type: 'DevOps', status: 'Active', description: 'Observability stack', technology: 'Prometheus, Grafana', responsibilities: 'Metrics, logs, alerts', connections: [], dependencies: [], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 200, variableCost: 0, variableUnit: '', notes: 'Monitoring infrastructure' } },
-                    { id: '12_4', name: 'CI/CD Pipeline', type: 'DevOps', status: 'Active', description: 'Automated deployment', technology: 'GitHub Actions', responsibilities: 'Build, test, deploy', connections: [], dependencies: [], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 100, variableCost: 0, variableUnit: '', notes: 'CI/CD service' } }
-                ]}
-            ]
-        },
-        usePaths: [
-            {
-                id: 'login',
-                name: 'User Login',
-                description: 'User authentication and session creation',
-                layersInvolved: [1, 2, 10],
-                avgCallsPerLayer: {
-                    '1': 1,
-                    '2': 1,
-                    '10': 1
-                },
-                notes: 'Basic login flow through frontend, API, and database'
-            },
-            {
-                id: 'view-products',
-                name: 'View Products',
-                description: 'Browse product catalog',
-                layersInvolved: [1, 3, 9],
-                avgCallsPerLayer: {
-                    '1': 1,
-                    '3': 1,
-                    '9': 1
-                },
-                notes: 'Product listing from catalog database'
-            },
-            {
-                id: 'place-order',
-                name: 'Place Order',
-                description: 'Complete purchase transaction',
-                layersInvolved: [1, 2, 4, 5, 10, 11],
-                avgCallsPerLayer: {
-                    '1': 1,
-                    '2': 2,
-                    '4': 1,
-                    '5': 1,
-                    '10': 2,
-                    '11': 1
-                },
-                notes: 'Complex flow involving payment, inventory, and order services'
-            },
-            {
-                id: 'track-order',
-                name: 'Track Order',
-                description: 'Check order status and shipping',
-                layersInvolved: [1, 2, 6, 10],
-                avgCallsPerLayer: {
-                    '1': 1,
-                    '2': 1,
-                    '6': 1,
-                    '10': 1
-                },
-                notes: 'Query order status from database'
-            }
-        ]
+// Template projects - now loaded from external JSON files in templates/ directory
+// This object is populated by loadTemplatesFromFiles() at application startup
+const TEMPLATES = {};
+
+
+// ============================================================================
+// COST CALCULATION ENGINE
+// ============================================================================
+
+/**
+ * Initialize action cost structure with defaults
+ * @param {Object} action - The action/usePath object
+ * @returns {Object} - The action with initialized cost structure
+ */
+function initializeActionCost(action) {
+    if (!action.actionCost) {
+        action.actionCost = JSON.parse(JSON.stringify(DEFAULT_ACTION_COST));
     }
+    return action;
+}
+
+/**
+ * Set resource consumption for a specific layer in an action
+ * @param {Object} action - The action/usePath object
+ * @param {number} layerId - The layer ID
+ * @param {string} unit - The variable cost unit (e.g., 'per-1m-requests')
+ * @param {number} quantity - How many units this layer consumes per action
+ * @param {string} description - Human-readable description
+ */
+function setResourceConsumption(action, layerId, unit, quantity, description) {
+    initializeActionCost(action);
+    
+    action.actionCost.resourceConsumption[layerId] = {
+        unit: unit,
+        quantity: quantity,
+        description: description || `${quantity} ${VARIABLE_COST_UNITS[unit]?.label || unit}`
+    };
+}
+
+/**
+ * Set usage assumptions for an action
+ * @param {Object} action - The action/usePath object
+ * @param {number} estimatedCallsPerMonth - How many times this action runs per month
+ * @param {number} estimatedUsersPerMonth - How many unique users trigger this
+ * @param {number} callsPerUser - Average calls per user per month
+ */
+function setUsageAssumptions(action, estimatedCallsPerMonth, estimatedUsersPerMonth, callsPerUser) {
+    initializeActionCost(action);
+    
+    action.actionCost.usageAssumptions = {
+        estimatedCallsPerMonth: estimatedCallsPerMonth || 10000,
+        estimatedUsersPerMonth: estimatedUsersPerMonth || 1000,
+        callsPerUser: callsPerUser || 10
+    };
+}
+
+/**
+ * Calculate the cost of an action based on resource consumption and usage assumptions
+ * @param {Object} action - The action/usePath object
+ * @param {Array} allLayers - All layers in the project
+ * @returns {Object} - Cost analysis with per-use, monthly, and per-user costs
+ */
+function calculateActionCost(action, allLayers) {
+    if (!action.actionCost) {
+        initializeActionCost(action);
+    }
+    
+    const actionCost = action.actionCost;
+    const assumptions = actionCost.usageAssumptions;
+    const consumption = actionCost.resourceConsumption;
+    const monthlyCallsCount = assumptions.estimatedCallsPerMonth || 10000;
+    const monthlyUsersCount = assumptions.estimatedUsersPerMonth || 1000;
+    
+    // Initialize cost accumulators
+    let costPerUseVariable = 0;  // Only variable cost per use
+    let monthlyCostFixed = 0;    // Total fixed cost per month (allocated)
+    let monthlyCostVariable = 0; // Total variable cost per month
+    let layerBreakdown = {};
+    
+    // Calculate costs by iterating through layers in the action path
+    if (action.layersInvolved && action.layersInvolved.length > 0) {
+        action.layersInvolved.forEach(layerId => {
+            const layer = allLayers.find(l => l.id === layerId);
+            if (!layer || !layer.costModel) return;
+            
+            const costModel = layer.costModel;
+            const resourceInfo = consumption[layerId];
+            
+            // FIXED COST: Allocated based on usage
+            // Calculate how many actions use this layer
+            const layerUsageCount = project.usePaths.filter(p => 
+                p.layersInvolved && p.layersInvolved.includes(layerId)
+            ).length;
+            
+            // Allocate fixed cost proportionally
+            // If 1 action uses it: pays 100%
+            // If 2 actions use it: each pays 50%
+            // If 3 actions use it: each pays 33%
+            const allocatedFixedCost = layerUsageCount > 0 
+                ? costModel.fixedCost / layerUsageCount 
+                : costModel.fixedCost;
+            
+            // VARIABLE COST: Per-unit cost based on resource consumption
+            // Variable cost per use = (cost per unit) * (quantity consumed per action)
+            let variableCostPerUse = 0;
+            if (resourceInfo && resourceInfo.quantity > 0) {
+                variableCostPerUse = costModel.variableCost * resourceInfo.quantity;
+            }
+            
+            // Accumulate variable cost per use
+            costPerUseVariable += variableCostPerUse;
+            
+            // Accumulate monthly costs
+            monthlyCostFixed += allocatedFixedCost;
+            monthlyCostVariable += variableCostPerUse * monthlyCallsCount;
+            
+            // Store layer breakdown
+            layerBreakdown[layerId] = {
+                layerName: layer.name,
+                layerType: layer.type,
+                fixedCostMonthly: allocatedFixedCost,       // Allocated fixed cost per month
+                variableCostPerUse: variableCostPerUse,     // Variable cost per use
+                variableCostMonthly: variableCostPerUse * monthlyCallsCount,  // Total variable per month
+                totalMonthly: allocatedFixedCost + (variableCostPerUse * monthlyCallsCount),
+                resourceConsumption: resourceInfo,
+                layerUsageCount: layerUsageCount,           // How many actions use this layer
+                allocationNote: layerUsageCount > 1 ? `Shared by ${layerUsageCount} actions` : 'Dedicated to this action'
+            };
+        });
+    }
+    
+    // Calculate per-use costs
+    // Cost per use = only variable costs (fixed costs are monthly, not per-use)
+    const costPerUseTotal = costPerUseVariable;
+    
+    // Calculate per-user costs
+    const costPerUserFixed = monthlyUsersCount > 0 ? monthlyCostFixed / monthlyUsersCount : 0;
+    const costPerUserVariable = monthlyUsersCount > 0 ? monthlyCostVariable / monthlyUsersCount : 0;
+    
+    // Store calculated costs
+    actionCost.calculatedCosts = {
+        costPerUse: {
+            fixed: 0,  // Fixed costs don't apply per-use
+            variable: costPerUseVariable,
+            total: costPerUseTotal
+        },
+        monthlyCost: {
+            fixed: monthlyCostFixed,
+            variable: monthlyCostVariable,
+            total: monthlyCostFixed + monthlyCostVariable
+        },
+        costPerUser: {
+            fixed: costPerUserFixed,
+            variable: costPerUserVariable,
+            total: costPerUserFixed + costPerUserVariable
+        },
+        layerBreakdown: layerBreakdown
+    };
+    
+    return actionCost.calculatedCosts;
+}
+
+/**
+ * Get cost analysis for an action (with caching)
+ * @param {Object} action - The action/usePath object
+ * @param {Array} allLayers - All layers in the project
+ * @returns {Object} - Cost analysis
+ */
+function getActionCostAnalysis(action, allLayers) {
+    if (!action.actionCost) {
+        initializeActionCost(action);
+    }
+    
+    // Recalculate costs (in case resource consumption or usage assumptions changed)
+    return calculateActionCost(action, allLayers);
+}
+
+/**
+ * Format cost value for display
+ * @param {number} cost - The cost value
+ * @param {string} currency - Currency code (default: 'USD')
+ * @returns {string} - Formatted cost string
+ */
+function formatCost(cost, currency = 'USD', isVariable = false) {
+    // For variable costs, show more precision to avoid $0.00 display
+    if (isVariable && cost < 1) {
+        // Show up to 6 decimal places for small variable costs
+        const symbol = currency === 'USD' ? '$' : currency === 'EUR' ? '€' : currency === 'GBP' ? '£' : currency;
+        
+        if (cost >= 0.01) {
+            return symbol + cost.toFixed(4);
+        } else if (cost >= 0.0001) {
+            return symbol + cost.toFixed(6);
+        } else if (cost > 0) {
+            return symbol + cost.toExponential(2);
+        } else {
+            return symbol + '0.00';
+        }
+    }
+    
+    // For fixed costs and large amounts, use standard formatting
+    const formatter = new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: currency,
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+    });
+    return formatter.format(cost);
+}
+
+/**
+ * Get a summary of action costs for display
+ * @param {Object} action - The action/usePath object
+ * @param {Array} allLayers - All layers in the project
+ * @returns {Object} - Summary with formatted costs
+ */
+function getActionCostSummary(action, allLayers) {
+    const costs = getActionCostAnalysis(action, allLayers);
+    
+    return {
+        costPerUse: formatCost(costs.costPerUse.total),
+        monthlyCost: formatCost(costs.monthlyCost.total),
+        costPerUser: formatCost(costs.costPerUser.total),
+        breakdown: costs.layerBreakdown
+    };
+}
+
+// Load templates from external JSON files on page load
+loadTemplatesFromFiles().catch(err => {
+    console.error('Error loading templates:', err);
+});

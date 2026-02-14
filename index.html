@@ -45,6 +45,7 @@
                     <div class="dropdown-item" onclick="toggleView('stack')" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">Stack View</div>
                     <div class="dropdown-item" onclick="toggleView('diagram')" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">Diagram View</div>
                     <div class="dropdown-item" onclick="toggleView('actions')" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">Actions View</div>
+                    <div class="dropdown-item" onclick="toggleView('cost-dashboard')" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">Cost Dashboard</div>
                 </div>
             </div>
         </div>
@@ -94,6 +95,10 @@
             <!-- Actions will be dynamically added here -->
         </div>
 
+        <div id="cost-dashboard-view" style="display: none; flex: 1; background: #0f172a; overflow-y: auto; padding: 24px;">
+            <!-- Cost dashboard will be dynamically added here -->
+        </div>
+
         <div class="right-frame" id="details-panel">
             <div id="layer-details" class="layer-details">
                 <p class="no-selection">Select a layer to view details</p>
@@ -104,6 +109,10 @@
 
     <script src="static/js/data.js"></script>
     <script src="static/js/validation.js"></script>
+    <script src="static/js/views/stackView.js"></script>
+    <script src="static/js/views/detailsView.js"></script>
+    <script src="static/js/views/actionsView.js"></script>
+    <script src="static/js/views/costDashboardView.js"></script>
     <script src="static/js/app.js"></script>
     <script src="static/js/diagram.js"></script>
 </body>
