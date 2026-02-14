@@ -690,16 +690,28 @@ function handleCanvasClick(e) {
 
 function toggleView(view) {
     currentView = view;
+    const detailsPanel = document.getElementById('details-panel');
     
     if (view === 'stack') {
         document.getElementById('stack-view').style.display = 'flex';
         document.getElementById('diagram-view').style.display = 'none';
+        document.getElementById('actions-view').style.display = 'none';
+        detailsPanel.style.display = 'flex';
         renderLayers();
         selectLayer(selectedLayerIndex);
-    } else {
+    } else if (view === 'diagram') {
         document.getElementById('stack-view').style.display = 'none';
         document.getElementById('diagram-view').style.display = 'flex';
+        document.getElementById('actions-view').style.display = 'none';
+        detailsPanel.style.display = 'flex';
         setTimeout(() => initDiagramView(), 50);
+    } else if (view === 'actions') {
+        document.getElementById('stack-view').style.display = 'none';
+        document.getElementById('diagram-view').style.display = 'none';
+        document.getElementById('actions-view').style.display = 'flex';
+        detailsPanel.style.display = 'flex';
+        selectedActionId = null;
+        renderActionsView();
     }
 }
 

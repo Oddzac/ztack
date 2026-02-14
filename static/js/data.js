@@ -9,6 +9,151 @@ const LAYER_TYPES = {
     'Other': '#6b7280'
 };
 
+// Migration function: Convert old connection format {targetId, type} to new format
+// New format: connections: [id1, id2], connectionTypes: {'id1': 'HTTP', 'id2': 'gRPC'}
+function migrateConnectionFormat(layer) {
+    if (!layer.connections) return;
+    
+    // Check if already in new format (array of numbers)
+    if (Array.isArray(layer.connections) && layer.connections.length > 0) {
+        const firstConn = layer.connections[0];
+        if (typeof firstConn === 'number') {
+            // Already migrated
+            return;
+        }
+    }
+    
+    // Convert from old format to new format
+    const newConnections = [];
+    const connectionTypes = {};
+    
+    if (Array.isArray(layer.connections)) {
+        layer.connections.forEach(conn => {
+            if (typeof conn === 'object' && conn.targetId) {
+                newConnections.push(conn.targetId);
+                connectionTypes[conn.targetId] = conn.type || 'HTTP';
+            } else if (typeof conn === 'number') {
+                newConnections.push(conn);
+                connectionTypes[conn] = 'HTTP'; // Default type
+            }
+        });
+    }
+    
+    layer.connections = newConnections;
+    if (Object.keys(connectionTypes).length > 0) {
+        layer.connectionTypes = connectionTypes;
+    }
+}
+
+// Apply migration to all layers in a project
+function migrateProjectConnections(project) {
+    if (!project || !project.layers) return;
+    
+    project.layers.forEach(layer => {
+        migrateConnectionFormat(layer);
+        
+        // Also migrate substacks
+        if (layer.substacks && Array.isArray(layer.substacks)) {
+            layer.substacks.forEach(substack => {
+                migrateConnectionFormat(substack);
+            });
+        }
+    });
+}
+
+// Migration function: Convert old use path format to new step-based format
+// Old format: { layersInvolved: [1, 2, 5], avgCallsPerLayer: {'1': 1, '2': 1, '5': 1} }
+// New format: { steps: [{layerId, componentId, connectionType, costPerStep, ...}], totalCost, ... }
+function migrateUsePathFormat(usePath, project) {
+    if (!usePath) return usePath;
+    
+    // Check if already in new format (has steps array)
+    if (usePath.steps && Array.isArray(usePath.steps)) {
+        return usePath; // Already migrated
+    }
+    
+    // Convert from old format to new format
+    const steps = [];
+    
+    if (usePath.layersInvolved && Array.isArray(usePath.layersInvolved)) {
+        usePath.layersInvolved.forEach((layerId, index) => {
+            // Find the layer to get its name
+            const layer = getAllLayersFromProject(project).find(l => l.id === layerId);
+            const layerName = layer ? layer.name : `Layer ${layerId}`;
+            
+            // Determine connection type from existing connections if available
+            let connectionType = 'HTTP'; // Default
+            if (index > 0) {
+                const prevLayerId = usePath.layersInvolved[index - 1];
+                const prevLayer = getAllLayersFromProject(project).find(l => l.id === prevLayerId);
+                if (prevLayer && prevLayer.connectionTypes && prevLayer.connectionTypes[layerId]) {
+                    connectionType = prevLayer.connectionTypes[layerId];
+                }
+            }
+            
+            steps.push({
+                layerId: layerId,
+                layerName: layerName,
+                componentId: null,  // No component info in old format
+                componentName: null,
+                connectionType: connectionType,
+                costPerStep: 0,  // No cost info in old format
+                currency: 'USD',
+                period: 'month',
+                notes: ''
+            });
+        });
+    }
+    
+    // Calculate total cost (0 for now, will be set by user)
+    const totalCost = steps.reduce((sum, step) => sum + (step.costPerStep || 0), 0);
+    
+    // Update the use path with new format
+    usePath.steps = steps;
+    usePath.totalCost = totalCost;
+    usePath.currency = usePath.currency || 'USD';
+    usePath.period = usePath.period || 'month';
+    
+    // Keep old fields for backward compatibility during transition
+    // usePath.layersInvolved = undefined;
+    // usePath.avgCallsPerLayer = undefined;
+    
+    return usePath;
+}
+
+// Helper function to get all layers from a project (used during migration)
+function getAllLayersFromProject(project) {
+    const allLayers = [];
+    if (project && project.layers) {
+        project.layers.forEach(layer => {
+            allLayers.push(layer);
+            if (layer.substacks && Array.isArray(layer.substacks)) {
+                allLayers.push(...layer.substacks);
+            }
+        });
+    }
+    return allLayers;
+}
+
+// Apply migration to all use paths in a project
+function migrateProjectUsePaths(project) {
+    if (!project || !project.usePaths) return;
+    
+    project.usePaths.forEach(usePath => {
+        migrateUsePathFormat(usePath, project);
+    });
+}
+
+// Apply all migrations to a project
+function migrateProject(project) {
+    if (!project) return;
+    
+    migrateProjectConnections(project);
+    migrateProjectUsePaths(project);
+    
+    return project;
+}
+
 // Connection type definitions
 const CONNECTION_TYPES = {
     'HTTP': { label: 'HTTP/REST', color: '#3b82f6', pattern: [5, 5], width: 2 },
@@ -185,6 +330,32 @@ const TEMPLATES = {
             { id: 5, name: 'User DB', type: 'Database', status: 'Active', description: 'User data', technology: 'PostgreSQL', responsibilities: 'Store user data', connections: [], dependencies: [2], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 150, variableCost: 0.0001, variableUnit: 'per GB', notes: 'Database instance' }, substacks: [] },
             { id: 6, name: 'Order DB', type: 'Database', status: 'Active', description: 'Order data', technology: 'MongoDB', responsibilities: 'Store orders', connections: [], dependencies: [3], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 200, variableCost: 0.00005, variableUnit: 'per 1M ops', notes: 'NoSQL database' }, substacks: [] },
             { id: 7, name: 'Payment DB', type: 'Database', status: 'Active', description: 'Payment data', technology: 'PostgreSQL', responsibilities: 'Store transactions', connections: [], dependencies: [4], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 150, variableCost: 0.0001, variableUnit: 'per GB', notes: 'Database instance' }, substacks: [] }
+        ],
+        usePaths: [
+            {
+                id: 'login',
+                name: 'User Login',
+                description: 'User authentication',
+                layersInvolved: [1, 2, 5],
+                avgCallsPerLayer: { '1': 1, '2': 1, '5': 1 },
+                notes: 'Login through API gateway to user service'
+            },
+            {
+                id: 'create-order',
+                name: 'Create Order',
+                description: 'Place a new order',
+                layersInvolved: [1, 3, 6],
+                avgCallsPerLayer: { '1': 1, '3': 1, '6': 1 },
+                notes: 'Order creation through API gateway'
+            },
+            {
+                id: 'process-payment',
+                name: 'Process Payment',
+                description: 'Payment processing',
+                layersInvolved: [1, 4, 7],
+                avgCallsPerLayer: { '1': 1, '4': 1, '7': 1 },
+                notes: 'Payment through API gateway to payment service'
+            }
         ]
     },
     threeLayer: {
@@ -193,6 +364,24 @@ const TEMPLATES = {
             { id: 1, name: 'Web Frontend', type: 'Frontend', status: 'Active', description: 'User interface', technology: 'React', responsibilities: 'Display UI', connections: [{ targetId: 2, type: 'HTTP' }], dependencies: [], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 75, variableCost: 0, variableUnit: '', notes: 'CDN + hosting' }, substacks: [] },
             { id: 2, name: 'Application Server', type: 'Backend', status: 'Active', description: 'Business logic', technology: 'Java Spring Boot', responsibilities: 'Process requests', connections: [{ targetId: 3, type: 'Database' }], dependencies: [1], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 350, variableCost: 0, variableUnit: '', notes: 'Application server' }, substacks: [] },
             { id: 3, name: 'Database', type: 'Database', status: 'Active', description: 'Data storage', technology: 'MySQL', responsibilities: 'Persist data', connections: [], dependencies: [2], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 200, variableCost: 0.00008, variableUnit: 'per GB', notes: 'Database instance' }, substacks: [] }
+        ],
+        usePaths: [
+            {
+                id: 'user-request',
+                name: 'User Request',
+                description: 'Standard user request flow',
+                layersInvolved: [1, 2, 3],
+                avgCallsPerLayer: { '1': 1, '2': 1, '3': 1 },
+                notes: 'Request from frontend through app server to database'
+            },
+            {
+                id: 'bulk-operation',
+                name: 'Bulk Operation',
+                description: 'Batch processing',
+                layersInvolved: [2, 3],
+                avgCallsPerLayer: { '2': 1, '3': 5 },
+                notes: 'Multiple database queries from app server'
+            }
         ]
     },
     serverless: {
@@ -205,6 +394,32 @@ const TEMPLATES = {
             { id: 5, name: 'File Lambda', type: 'Backend', status: 'Active', description: 'File handling', technology: 'AWS Lambda', responsibilities: 'File uploads', connections: [{ targetId: 7, type: 'Database' }], dependencies: [2], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 0, variableCost: 0.0000002, variableUnit: 'per GB-second', notes: 'Serverless compute' }, substacks: [] },
             { id: 6, name: 'DynamoDB', type: 'Database', status: 'Active', description: 'NoSQL database', technology: 'AWS DynamoDB', responsibilities: 'Store data', connections: [], dependencies: [3, 4], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 0, variableCost: 0.00000125, variableUnit: 'per read unit', notes: 'On-demand pricing' }, substacks: [] },
             { id: 7, name: 'S3 Storage', type: 'Database', status: 'Active', description: 'Object storage', technology: 'AWS S3', responsibilities: 'Store files', connections: [], dependencies: [5], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 0, variableCost: 0.023, variableUnit: 'per GB', notes: 'Object storage' }, substacks: [] }
+        ],
+        usePaths: [
+            {
+                id: 'authenticate',
+                name: 'Authenticate User',
+                description: 'User authentication flow',
+                layersInvolved: [1, 2, 3, 6],
+                avgCallsPerLayer: { '1': 1, '2': 1, '3': 1, '6': 1 },
+                notes: 'CDN to API Gateway to Auth Lambda to DynamoDB'
+            },
+            {
+                id: 'read-data',
+                name: 'Read Data',
+                description: 'Fetch data from database',
+                layersInvolved: [1, 2, 4, 6],
+                avgCallsPerLayer: { '1': 1, '2': 1, '4': 1, '6': 1 },
+                notes: 'Data retrieval through serverless functions'
+            },
+            {
+                id: 'upload-file',
+                name: 'Upload File',
+                description: 'File upload to S3',
+                layersInvolved: [1, 2, 5, 7],
+                avgCallsPerLayer: { '1': 1, '2': 1, '5': 1, '7': 1 },
+                notes: 'File upload through Lambda to S3'
+            }
         ]
     },
     enterprise: {
@@ -263,20 +478,59 @@ const TEMPLATES = {
                     { id: '12_4', name: 'CI/CD Pipeline', type: 'DevOps', status: 'Active', description: 'Automated deployment', technology: 'GitHub Actions', responsibilities: 'Build, test, deploy', connections: [], dependencies: [], visible: true, locked: false, costModel: { currency: 'USD', period: 'month', fixedCost: 100, variableCost: 0, variableUnit: '', notes: 'CI/CD service' } }
                 ]}
             ]
-        }};
-
-function loadTemplate(templateName) {
-    if (TEMPLATES[templateName]) {
-        project = JSON.parse(JSON.stringify(TEMPLATES[templateName]));
-        document.getElementById('project-title').textContent = project.name;
-        undoStack = [];
-        redoStack = [];
-        saveProject();
-        renderLayers();
-        updateStats();
-        selectLayer(0);
-        if (currentView === 'diagram') {
-            renderDiagram();
-        }
+        },
+        usePaths: [
+            {
+                id: 'login',
+                name: 'User Login',
+                description: 'User authentication and session creation',
+                layersInvolved: [1, 2, 10],
+                avgCallsPerLayer: {
+                    '1': 1,
+                    '2': 1,
+                    '10': 1
+                },
+                notes: 'Basic login flow through frontend, API, and database'
+            },
+            {
+                id: 'view-products',
+                name: 'View Products',
+                description: 'Browse product catalog',
+                layersInvolved: [1, 3, 9],
+                avgCallsPerLayer: {
+                    '1': 1,
+                    '3': 1,
+                    '9': 1
+                },
+                notes: 'Product listing from catalog database'
+            },
+            {
+                id: 'place-order',
+                name: 'Place Order',
+                description: 'Complete purchase transaction',
+                layersInvolved: [1, 2, 4, 5, 10, 11],
+                avgCallsPerLayer: {
+                    '1': 1,
+                    '2': 2,
+                    '4': 1,
+                    '5': 1,
+                    '10': 2,
+                    '11': 1
+                },
+                notes: 'Complex flow involving payment, inventory, and order services'
+            },
+            {
+                id: 'track-order',
+                name: 'Track Order',
+                description: 'Check order status and shipping',
+                layersInvolved: [1, 2, 6, 10],
+                avgCallsPerLayer: {
+                    '1': 1,
+                    '2': 1,
+                    '6': 1,
+                    '10': 1
+                },
+                notes: 'Query order status from database'
+            }
+        ]
     }
-}

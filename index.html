@@ -16,10 +16,10 @@
                     <div class="dropdown-item" onclick="importProject()" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">Open</div>
                     <div class="dropdown-item" onclick="exportProject()" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">Save</div>
                     <div style="border-top: 1px solid #334155; margin: 4px 0;"></div>
-                    <div class="dropdown-item submenu-trigger" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s; display: flex; justify-content: space-between; align-items: center; position: relative;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">
+                    <div class="dropdown-item submenu-trigger" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s; display: flex; justify-content: space-between; align-items: center; position: relative;">
                         <span>Templates</span>
                         <span style="font-size: 10px; margin-left: 8px;">▶</span>
-                        <div class="submenu" style="display: none; position: absolute; top: 0; left: 100%; background: #0f172a; border: 1px solid #334155; border-radius: 4px; min-width: 180px; margin-left: 4px;">
+                        <div class="submenu" style="display: none; position: absolute; top: -8px; left: calc(100% - 8px); background: #0f172a; border: 1px solid #334155; border-radius: 4px; min-width: 180px; flex-direction: column; z-index: 1001;">
                             <div class="dropdown-item" onclick="loadTemplate('threeLayer')" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">3-Tier Architecture</div>
                             <div class="dropdown-item" onclick="loadTemplate('microservices')" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">Microservices</div>
                             <div class="dropdown-item" onclick="loadTemplate('serverless')" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">Serverless</div>
@@ -44,6 +44,7 @@
                 <div class="dropdown-menu" style="display: none; position: absolute; top: 100%; left: 0; background: #0f172a; border: 1px solid #334155; border-radius: 4px; min-width: 150px; z-index: 1000;">
                     <div class="dropdown-item" onclick="toggleView('stack')" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">Stack View</div>
                     <div class="dropdown-item" onclick="toggleView('diagram')" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">Diagram View</div>
+                    <div class="dropdown-item" onclick="toggleView('actions')" style="padding: 8px 16px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#1e293b'" onmouseout="this.style.background='transparent'">Actions View</div>
                 </div>
             </div>
         </div>
@@ -89,6 +90,10 @@
             <canvas id="diagram-canvas" style="width: 100%; height: 100%; cursor: move;"></canvas>
         </div>
 
+        <div id="actions-view" style="display: none; flex: 1; background: #0f172a; overflow-y: auto; padding: 24px;">
+            <!-- Actions will be dynamically added here -->
+        </div>
+
         <div class="right-frame" id="details-panel">
             <div id="layer-details" class="layer-details">
                 <p class="no-selection">Select a layer to view details</p>
@@ -98,6 +103,7 @@
     </div>
 
     <script src="static/js/data.js"></script>
+    <script src="static/js/validation.js"></script>
     <script src="static/js/app.js"></script>
     <script src="static/js/diagram.js"></script>
 </body>

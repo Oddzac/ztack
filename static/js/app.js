@@ -4,6 +4,9 @@ let inSubstack = false;
 let selectedSubstackIndex = 0;
 let undoStack = [];
 let redoStack = [];
+let selectedActionId = null;  // Track selected action in Actions View
+let actionsViewCollapsed = false;  // Track if Actions section is collapsed
+let pathsViewCollapsed = false;  // Track if Paths section is collapsed
 const MAX_HISTORY = 50;
 
 function loadProject() {
@@ -1608,6 +1611,24 @@ function newProject() {
     }
 }
 
+function loadTemplate(templateName) {
+    if (confirm('Load template? Unsaved changes will be lost.')) {
+        const template = TEMPLATES[templateName];
+        if (template) {
+            project = JSON.parse(JSON.stringify(template));
+            // Migrate template data to new format
+            project = migrateProject(project);
+            document.getElementById('project-title').textContent = project.name;
+            saveProject();
+            renderLayers();
+            updateStats();
+            selectLayer(0);
+        } else {
+            alert('Template not found: ' + templateName);
+        }
+    }
+}
+
 function editProjectName() {
     const currentName = project.name;
     const newName = prompt('Enter project name:', currentName);
@@ -1849,3 +1870,898 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }, { passive: true });
 });
+
+
+// ============================================================================
+// ACTIONS VIEW FUNCTIONS
+// ============================================================================
+
+/**
+ * Render the actions view
+ */
+function renderActionsView() {
+    const container = document.getElementById('actions-view');
+    container.innerHTML = '';
+    
+    // Header with buttons
+    const header = document.createElement('div');
+    header.style.cssText = `
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 32px;
+        padding-bottom: 16px;
+        border-bottom: 2px solid #334155;
+        flex-wrap: wrap;
+        gap: 12px;
+    `;
+    
+    const title = document.createElement('h2');
+    title.textContent = 'Actions & Flows';
+    title.style.cssText = `
+        margin: 0;
+        color: #e2e8f0;
+        font-size: 20px;
+        font-weight: 700;
+        letter-spacing: -0.5px;
+        flex: 1;
+    `;
+    
+    const buttonGroup = document.createElement('div');
+    buttonGroup.style.cssText = `
+        display: flex;
+        gap: 8px;
+    `;
+    
+    const importBtn = document.createElement('button');
+    importBtn.textContent = '⚡ Import from Connections';
+    importBtn.style.cssText = `
+        background: #8b5cf6;
+        color: white;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 500;
+        transition: all 0.2s;
+    `;
+    importBtn.onmouseover = () => importBtn.style.background = '#7c3aed';
+    importBtn.onmouseout = () => importBtn.style.background = '#8b5cf6';
+    importBtn.onclick = () => importActionsFromConnections();
+    
+    const addBtn = document.createElement('button');
+    addBtn.textContent = '+ New Action';
+    addBtn.style.cssText = `
+        background: #3b82f6;
+        color: white;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 500;
+        transition: all 0.2s;
+    `;
+    addBtn.onmouseover = () => addBtn.style.background = '#2563eb';
+    addBtn.onmouseout = () => addBtn.style.background = '#3b82f6';
+    addBtn.onclick = () => createNewAction();
+    
+    buttonGroup.appendChild(importBtn);
+    buttonGroup.appendChild(addBtn);
+    header.appendChild(title);
+    header.appendChild(buttonGroup);
+    container.appendChild(header);
+    
+    // Actions list
+    if (!project.usePaths || project.usePaths.length === 0) {
+        const empty = document.createElement('div');
+        empty.style.cssText = `
+            text-align: center;
+            color: #64748b;
+            padding: 60px 20px;
+        `;
+        empty.innerHTML = `
+            <div style="font-size: 15px; margin-bottom: 12px; color: #94a3b8;">No actions defined yet</div>
+            <div style="font-size: 13px; line-height: 1.6;">Click <strong>"New Action"</strong> to create your first user journey<br>or <strong>"Import from Connections"</strong> to auto-generate from your diagram</div>
+        `;
+        container.appendChild(empty);
+        return;
+    }
+    
+    // Separate actions and paths
+    const actions = project.usePaths.filter(p => p.layersInvolved.length === 1);
+    const paths = project.usePaths.filter(p => p.layersInvolved.length > 1);
+    
+    // Sort both by name
+    actions.sort((a, b) => a.name.localeCompare(b.name));
+    paths.sort((a, b) => a.name.localeCompare(b.name));
+    
+    // Helper function to create section header
+    function createSectionHeader(title, count, isCollapsed, toggleCallback) {
+        const header = document.createElement('div');
+        header.style.cssText = `
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+            padding: 12px 0;
+            user-select: none;
+            transition: all 0.2s;
+            margin-bottom: 16px;
+        `;
+        
+        const toggleIcon = document.createElement('span');
+        toggleIcon.textContent = '▼';
+        toggleIcon.style.cssText = `
+            color: #94a3b8;
+            font-size: 11px;
+            font-weight: 600;
+            transition: transform 0.2s;
+            transform: ${isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)'};
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 16px;
+            height: 16px;
+        `;
+        
+        const titleSpan = document.createElement('span');
+        titleSpan.textContent = title;
+        titleSpan.style.cssText = `
+            color: #e2e8f0;
+            font-weight: 600;
+            font-size: 14px;
+            letter-spacing: 0.3px;
+            flex: 1;
+        `;
+        
+        const countBadge = document.createElement('span');
+        countBadge.textContent = count;
+        countBadge.style.cssText = `
+            background: #334155;
+            color: #cbd5e1;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            min-width: 24px;
+            text-align: center;
+        `;
+        
+        header.appendChild(toggleIcon);
+        header.appendChild(titleSpan);
+        header.appendChild(countBadge);
+        
+        header.onclick = toggleCallback;
+        
+        return { header, toggleIcon };
+    }
+    
+    // Render Actions section (collapsible)
+    if (actions.length > 0) {
+        const actionsSection = document.createElement('div');
+        actionsSection.style.cssText = `
+            margin-bottom: 40px;
+        `;
+        
+        const { header: actionsHeader, toggleIcon: actionsToggle } = createSectionHeader(
+            'Single Actions',
+            actions.length,
+            actionsViewCollapsed,
+            () => {
+                actionsViewCollapsed = !actionsViewCollapsed;
+                actionsContainer.style.display = actionsViewCollapsed ? 'none' : 'grid';
+                actionsToggle.style.transform = actionsViewCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)';
+            }
+        );
+        
+        const actionsContainer = document.createElement('div');
+        actionsContainer.style.cssText = `
+            display: ${actionsViewCollapsed ? 'none' : 'grid'};
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 16px;
+            animation: fadeIn 0.3s ease;
+        `;
+        
+        // Render action cards
+        actions.forEach(action => {
+            const actionCard = createActionCard(action);
+            actionsContainer.appendChild(actionCard);
+        });
+        
+        actionsSection.appendChild(actionsHeader);
+        actionsSection.appendChild(actionsContainer);
+        container.appendChild(actionsSection);
+    }
+    
+    // Render Paths section (collapsible)
+    if (paths.length > 0) {
+        const pathsSection = document.createElement('div');
+        pathsSection.style.cssText = `
+            margin-bottom: 40px;
+        `;
+        
+        const { header: pathsHeader, toggleIcon: pathsToggle } = createSectionHeader(
+            'Multi-Step Flows',
+            paths.length,
+            pathsViewCollapsed,
+            () => {
+                pathsViewCollapsed = !pathsViewCollapsed;
+                pathsContainer.style.display = pathsViewCollapsed ? 'none' : 'grid';
+                pathsToggle.style.transform = pathsViewCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)';
+            }
+        );
+        
+        const pathsContainer = document.createElement('div');
+        pathsContainer.style.cssText = `
+            display: ${pathsViewCollapsed ? 'none' : 'grid'};
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 16px;
+            animation: fadeIn 0.3s ease;
+        `;
+        
+        // Render path cards
+        paths.forEach(path => {
+            const pathCard = createActionCard(path);
+            pathsContainer.appendChild(pathCard);
+        });
+        
+        pathsSection.appendChild(pathsHeader);
+        pathsSection.appendChild(pathsContainer);
+        container.appendChild(pathsSection);
+    }
+}
+
+/**
+ * Create an action/path card
+ */
+function createActionCard(path) {
+    const actionCard = document.createElement('div');
+    const isSelected = selectedActionId === path.id;
+    
+    actionCard.style.cssText = `
+        background: ${isSelected ? '#1e293b' : '#0f172a'};
+        border: 2px solid ${isSelected ? '#3b82f6' : '#334155'};
+        border-radius: 8px;
+        padding: 14px 16px;
+        cursor: pointer;
+        transition: all 0.2s;
+    `;
+    actionCard.onmouseover = () => {
+        if (!isSelected) {
+            actionCard.style.background = '#1e293b';
+            actionCard.style.borderColor = '#475569';
+        }
+    };
+    actionCard.onmouseout = () => {
+        if (!isSelected) {
+            actionCard.style.background = '#0f172a';
+            actionCard.style.borderColor = '#334155';
+        }
+    };
+    
+    // Action name and description
+    const nameDiv = document.createElement('div');
+    nameDiv.style.cssText = `
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 10px;
+        gap: 12px;
+    `;
+    
+    const nameSpan = document.createElement('div');
+    nameSpan.style.cssText = `
+        flex: 1;
+    `;
+    nameSpan.innerHTML = `
+        <div style="color: #e2e8f0; font-weight: 600; font-size: 13px; letter-spacing: 0.2px;">${path.name}</div>
+        <div style="color: #94a3b8; font-size: 12px; margin-top: 4px; line-height: 1.4;">${path.description || '<em style="color: #64748b;">No description</em>'}</div>
+    `;
+    
+    const deleteBtn = document.createElement('button');
+    deleteBtn.textContent = '✕';
+    deleteBtn.style.cssText = `
+        background: #ef4444;
+        color: white;
+        border: none;
+        width: 28px;
+        height: 28px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 600;
+        transition: all 0.2s;
+        flex-shrink: 0;
+    `;
+    deleteBtn.onmouseover = () => deleteBtn.style.background = '#dc2626';
+    deleteBtn.onmouseout = () => deleteBtn.style.background = '#ef4444';
+    deleteBtn.onclick = (e) => {
+        e.stopPropagation();
+        deleteAction(path.id);
+    };
+    
+    nameDiv.appendChild(nameSpan);
+    nameDiv.appendChild(deleteBtn);
+    
+    // Path visualization
+    const pathDiv = document.createElement('div');
+    pathDiv.style.cssText = `
+        background: rgba(15, 23, 42, 0.6);
+        border: 1px solid #334155;
+        border-radius: 6px;
+        padding: 10px 12px;
+        font-size: 12px;
+        color: #cbd5e1;
+        line-height: 1.5;
+    `;
+    
+    const pathLayers = path.layersInvolved.map(layerId => {
+        const layer = getAllLayers().find(l => l.id === layerId);
+        return layer ? layer.name : `Layer ${layerId}`;
+    });
+    
+    pathDiv.innerHTML = `
+        <div style="margin-bottom: 6px; color: #94a3b8; font-size: 11px; font-weight: 600; letter-spacing: 0.3px; text-transform: uppercase;">Path</div>
+        <div style="color: #cbd5e1;">${pathLayers.length > 0 ? pathLayers.join(' → ') : '<em style="color: #64748b;">No path defined</em>'}</div>
+    `;
+    
+    actionCard.appendChild(nameDiv);
+    actionCard.appendChild(pathDiv);
+    
+    // Click to select action
+    actionCard.onclick = () => {
+        selectedActionId = path.id;
+        renderActionsView();
+        renderActionAssemblyPanel(path);
+    };
+    
+    return actionCard;
+}
+
+/**
+ * Create a new action with blank slate
+ */
+function createNewAction() {
+    saveState();
+    
+    // Create blank action with default values
+    const actionIndex = (project.usePaths?.length || 0) + 1;
+    const newAction = {
+        id: `action-${actionIndex}`,
+        name: 'New Action',
+        description: '',
+        layersInvolved: [],
+        avgCallsPerLayer: {},
+        notes: ''
+    };
+    
+    if (!project.usePaths) {
+        project.usePaths = [];
+    }
+    
+    project.usePaths.push(newAction);
+    saveProject();
+    
+    // Select the new action and show assembly panel
+    selectedActionId = newAction.id;
+    renderActionsView();
+    renderActionAssemblyPanel(newAction);
+}
+
+/**
+ * Edit an action
+ */
+function editAction(pathId) {
+    const path = project.usePaths.find(p => p.id === pathId);
+    if (!path) return;
+    
+    selectedActionId = pathId;
+    renderActionsView();
+    renderActionAssemblyPanel(path);
+}
+
+/**
+ * Delete an action
+ */
+function deleteAction(pathId) {
+    const path = project.usePaths.find(p => p.id === pathId);
+    if (!path) return;
+    
+    if (!confirm(`Delete action "${path.name}"?`)) return;
+    
+    saveState();
+    project.usePaths = project.usePaths.filter(p => p.id !== pathId);
+    saveProject();
+    selectedActionId = null;
+    renderActionsView();
+}
+
+/**
+ * Render the action assembly panel in the details frame
+ */
+function renderActionAssemblyPanel(path) {
+    const detailsDiv = document.getElementById('layer-details');
+    const allLayers = getAllLayers();
+    
+    detailsDiv.innerHTML = `
+        <div style="display: flex; flex-direction: column; height: 100%; gap: 0;">
+            <!-- Header - Editable -->
+            <div style="padding-bottom: 16px; border-bottom: 1px solid #334155; margin-bottom: 16px; flex-shrink: 0;">
+                <input type="text" id="action-name-input" value="${path.name}" 
+                       style="width: 100%; background: #1e293b; border: 1px solid #334155; color: #e2e8f0; 
+                              padding: 8px 12px; border-radius: 4px; font-size: 14px; font-weight: 600; 
+                              margin-bottom: 8px; box-sizing: border-box;"
+                       onchange="updateActionName('${path.id}', this.value)">
+                <textarea id="action-desc-input" placeholder="Add description..." 
+                          style="width: 100%; background: #1e293b; border: 1px solid #334155; color: #e2e8f0; 
+                                 padding: 8px 12px; border-radius: 4px; font-size: 12px; 
+                                 resize: vertical; min-height: 50px; box-sizing: border-box;"
+                          onchange="updateActionDescription('${path.id}', this.value)">${path.description || ''}</textarea>
+            </div>
+            
+            <!-- Search Box -->
+            <div style="margin-bottom: 16px; flex-shrink: 0;">
+                <input type="text" id="assembly-search" placeholder="Search layers..." 
+                       style="width: 100%; background: #1e293b; border: 1px solid #334155; color: #e2e8f0; 
+                              padding: 8px 12px; border-radius: 4px; font-size: 12px; box-sizing: border-box;"
+                       onkeyup="filterAssemblyLayers()">
+            </div>
+            
+            <!-- Available Layers -->
+            <div style="margin-bottom: 16px; flex-shrink: 0;">
+                <div style="color: #94a3b8; font-size: 11px; margin-bottom: 8px; font-weight: 500;">
+                    Available Layers
+                </div>
+                <div id="assembly-layers" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; max-height: 150px; overflow-y: auto;">
+                    <!-- Layers will be populated here -->
+                </div>
+            </div>
+            
+            <!-- Current Path -->
+            <div style="flex: 1; display: flex; flex-direction: column; min-height: 0; margin-bottom: 16px;">
+                <div style="color: #94a3b8; font-size: 11px; margin-bottom: 8px; font-weight: 500;">
+                    Action Path (${path.layersInvolved.length} steps)
+                </div>
+                <div id="assembly-path" style="flex: 1; background: #0f172a; border: 1px solid #334155; border-radius: 4px; 
+                                               padding: 12px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;">
+                    <!-- Path steps will be populated here -->
+                </div>
+            </div>
+            
+            <!-- Action Buttons -->
+            <div style="display: flex; gap: 8px; flex-shrink: 0; padding-top: 16px; border-top: 1px solid #334155;">
+                <button onclick="saveActionPath()" style="flex: 1; background: #10b981; color: white; border: none; 
+                                                          padding: 8px 16px; border-radius: 4px; cursor: pointer; 
+                                                          font-size: 12px; font-weight: 500; transition: background 0.2s;"
+                        onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
+                    Save
+                </button>
+                <button onclick="clearActionSelection()" style="flex: 1; background: #64748b; color: white; border: none; 
+                                                                padding: 8px 16px; border-radius: 4px; cursor: pointer; 
+                                                                font-size: 12px; font-weight: 500; transition: background 0.2s;"
+                        onmouseover="this.style.background='#475569'" onmouseout="this.style.background='#64748b'">
+                    Close
+                </button>
+            </div>
+        </div>
+    `;
+    
+    // Populate available layers
+    populateAssemblyLayers(path, allLayers);
+    
+    // Populate current path
+    populateAssemblyPath(path);
+}
+
+/**
+ * Update action name
+ */
+function updateActionName(actionId, newName) {
+    const action = project.usePaths.find(p => p.id === actionId);
+    if (action && newName.trim()) {
+        action.name = newName.trim();
+        saveProject();
+    }
+}
+
+/**
+ * Update action description
+ */
+function updateActionDescription(actionId, newDescription) {
+    const action = project.usePaths.find(p => p.id === actionId);
+    if (action) {
+        action.description = newDescription.trim();
+        saveProject();
+    }
+}
+
+/**
+ * Populate the available layers list in the assembly panel
+ */
+function populateAssemblyLayers(path, allLayers) {
+    const container = document.getElementById('assembly-layers');
+    if (!container) return;
+    
+    container.innerHTML = '';
+    
+    allLayers.forEach(layer => {
+        const isInPath = path.layersInvolved.includes(layer.id);
+        
+        const layerBtn = document.createElement('button');
+        layerBtn.className = 'assembly-layer-btn';
+        layerBtn.dataset.layerId = layer.id;
+        layerBtn.style.cssText = `
+            background: ${isInPath ? '#3b82f6' : '#1e293b'};
+            color: ${isInPath ? 'white' : '#cbd5e1'};
+            border: 1px solid ${isInPath ? '#2563eb' : '#334155'};
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s;
+            text-align: left;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        `;
+        
+        layerBtn.textContent = layer.name;
+        
+        layerBtn.onmouseover = () => {
+            if (!isInPath) {
+                layerBtn.style.background = '#334155';
+                layerBtn.style.borderColor = '#475569';
+            }
+        };
+        
+        layerBtn.onmouseout = () => {
+            if (!isInPath) {
+                layerBtn.style.background = '#1e293b';
+                layerBtn.style.borderColor = '#334155';
+            }
+        };
+        
+        layerBtn.onclick = () => {
+            addLayerToPath(path, layer.id);
+        };
+        
+        container.appendChild(layerBtn);
+    });
+}
+
+/**
+ * Populate the current path visualization in the assembly panel
+ */
+function populateAssemblyPath(path) {
+    const container = document.getElementById('assembly-path');
+    if (!container) return;
+    
+    if (path.layersInvolved.length === 0) {
+        container.innerHTML = '<div style="color: #64748b; font-size: 12px; text-align: center; padding: 20px;">Click layers to add them to the path</div>';
+        return;
+    }
+    
+    container.innerHTML = '';
+    
+    path.layersInvolved.forEach((layerId, index) => {
+        const layer = getAllLayers().find(l => l.id === layerId);
+        const layerName = layer ? layer.name : `Layer ${layerId}`;
+        const calls = path.avgCallsPerLayer[layerId] || 1;
+        
+        const stepDiv = document.createElement('div');
+        stepDiv.style.cssText = `
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 4px;
+            padding: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        `;
+        
+        const stepInfo = document.createElement('div');
+        stepInfo.style.cssText = `
+            flex: 1;
+            min-width: 0;
+        `;
+        
+        stepInfo.innerHTML = `
+            <div style="color: #e2e8f0; font-size: 12px; font-weight: 500; margin-bottom: 4px;">
+                ${index + 1}. ${layerName}
+            </div>
+            <div style="color: #94a3b8; font-size: 11px;">
+                Calls: <input type="number" value="${calls}" min="1" style="width: 40px; background: #0f172a; 
+                             border: 1px solid #334155; color: #e2e8f0; padding: 4px; border-radius: 3px; font-size: 11px;"
+                       onchange="updateLayerCalls('${path.id}', ${layerId}, this.value)">
+            </div>
+        `;
+        
+        const removeBtn = document.createElement('button');
+        removeBtn.textContent = '✕';
+        removeBtn.style.cssText = `
+            background: #ef4444;
+            color: white;
+            border: none;
+            width: 24px;
+            height: 24px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 11px;
+            transition: background 0.2s;
+            flex-shrink: 0;
+        `;
+        
+        removeBtn.onmouseover = () => removeBtn.style.background = '#dc2626';
+        removeBtn.onmouseout = () => removeBtn.style.background = '#ef4444';
+        removeBtn.onclick = () => removeLayerFromPath(path, layerId);
+        
+        stepDiv.appendChild(stepInfo);
+        stepDiv.appendChild(removeBtn);
+        container.appendChild(stepDiv);
+        
+        // Add arrow between steps
+        if (index < path.layersInvolved.length - 1) {
+            const arrow = document.createElement('div');
+            arrow.style.cssText = `
+                text-align: center;
+                color: #64748b;
+                font-size: 12px;
+                padding: 4px 0;
+            `;
+            arrow.textContent = '↓';
+            container.appendChild(arrow);
+        }
+    });
+}
+
+/**
+ * Add a layer to the action path
+ */
+function addLayerToPath(path, layerId) {
+    if (!path.layersInvolved.includes(layerId)) {
+        path.layersInvolved.push(layerId);
+        path.avgCallsPerLayer[layerId] = 1;
+        populateAssemblyLayers(path, getAllLayers());
+        populateAssemblyPath(path);
+    }
+}
+
+/**
+ * Remove a layer from the action path
+ */
+function removeLayerFromPath(path, layerId) {
+    path.layersInvolved = path.layersInvolved.filter(id => id !== layerId);
+    delete path.avgCallsPerLayer[layerId];
+    populateAssemblyLayers(path, getAllLayers());
+    populateAssemblyPath(path);
+}
+
+/**
+ * Update the call count for a layer in the path
+ */
+function updateLayerCalls(pathId, layerId, value) {
+    const path = project.usePaths.find(p => p.id === pathId);
+    if (path) {
+        path.avgCallsPerLayer[layerId] = parseInt(value) || 1;
+    }
+}
+
+/**
+ * Filter assembly layers by search term
+ */
+function filterAssemblyLayers() {
+    const searchInput = document.getElementById('assembly-search');
+    const searchTerm = searchInput.value.toLowerCase();
+    const layerBtns = document.querySelectorAll('.assembly-layer-btn');
+    
+    layerBtns.forEach(btn => {
+        const layerName = btn.textContent.toLowerCase();
+        btn.style.display = layerName.includes(searchTerm) ? 'block' : 'none';
+    });
+}
+
+/**
+ * Save the action path and close the assembly panel
+ */
+function saveActionPath() {
+    saveState();
+    saveProject();
+    selectedActionId = null;
+    renderActionsView();
+    renderLayerDetails(project.layers[selectedLayerIndex]);
+}
+
+/**
+ * Clear action selection and return to details panel
+ */
+function clearActionSelection() {
+    selectedActionId = null;
+    renderActionsView();
+    renderLayerDetails(project.layers[selectedLayerIndex]);
+}
+
+
+// ============================================================================
+// CONNECTION PATH ANALYSIS & ACTION GENERATION
+// ============================================================================
+
+/**
+ * Generate action templates from all connection paths in the diagram
+ * Analyzes the connection graph and creates actions for all possible paths
+ */
+function generateActionsFromConnections() {
+    const allLayers = getAllLayers();
+    const generatedActions = [];
+    const visited = new Set();
+    
+    // Find all starting points (layers with no incoming connections)
+    const startingLayers = allLayers.filter(layer => {
+        const hasIncoming = allLayers.some(other => {
+            const connections = other.connections || [];
+            return connections.some(conn => {
+                const connId = typeof conn === 'object' ? conn.targetId : conn;
+                return connId === layer.id;
+            });
+        });
+        return !hasIncoming;
+    });
+    
+    // If no starting points found, use all layers as potential starts
+    const starts = startingLayers.length > 0 ? startingLayers : allLayers;
+    
+    // Generate paths from each starting point
+    starts.forEach(startLayer => {
+        const paths = findAllPathsFrom(startLayer, allLayers, new Set(), []);
+        paths.forEach(path => {
+            const pathKey = path.map(l => l.id).join('->');
+            if (!visited.has(pathKey)) {
+                visited.add(pathKey);
+                generatedActions.push(createActionFromPath(path));
+            }
+        });
+    });
+    
+    return generatedActions;
+}
+
+/**
+ * Find all possible paths starting from a given layer
+ * Uses depth-first search to explore all connection paths
+ */
+function findAllPathsFrom(currentLayer, allLayers, visited, currentPath) {
+    const paths = [];
+    const newPath = [...currentPath, currentLayer];
+    const newVisited = new Set(visited);
+    newVisited.add(currentLayer.id);
+    
+    // Add current path as a valid path
+    paths.push(newPath);
+    
+    // Explore connections
+    const connections = currentLayer.connections || [];
+    connections.forEach(conn => {
+        const targetId = typeof conn === 'object' ? conn.targetId : conn;
+        
+        // Avoid cycles
+        if (!newVisited.has(targetId)) {
+            const targetLayer = allLayers.find(l => l.id === targetId);
+            if (targetLayer) {
+                const subPaths = findAllPathsFrom(targetLayer, allLayers, newVisited, newPath);
+                paths.push(...subPaths);
+            }
+        }
+    });
+    
+    return paths;
+}
+
+/**
+ * Create an action from a path of layers
+ */
+function createActionFromPath(layerPath) {
+    const layerNames = layerPath.map(l => l.name).join(' → ');
+    const layerIds = layerPath.map(l => l.id);
+    
+    // Create action name from path
+    const actionName = layerNames;
+    
+    // Create action ID from layer IDs
+    const actionId = `path-${layerIds.join('-')}`;
+    
+    // Initialize call counts (1 per layer by default)
+    const avgCallsPerLayer = {};
+    layerIds.forEach(id => {
+        avgCallsPerLayer[id] = 1;
+    });
+    
+    return {
+        id: actionId,
+        name: actionName,
+        description: `Auto-generated path: ${layerNames}`,
+        layersInvolved: layerIds,
+        avgCallsPerLayer: avgCallsPerLayer,
+        notes: 'Generated from connection paths'
+    };
+}
+
+/**
+ * Import generated actions from connections
+ * Shows a dialog to select which paths to import
+ */
+function importActionsFromConnections() {
+    const generatedActions = generateActionsFromConnections();
+    
+    if (generatedActions.length === 0) {
+        alert('No connection paths found. Create connections between layers first.');
+        return;
+    }
+    
+    // Count existing actions
+    const existingCount = project.usePaths?.length || 0;
+    
+    // Ask user if they want to import
+    const message = `Found ${generatedActions.length} possible paths through your stack.\n\nImport these as action templates?\n\nYou can edit them after import.`;
+    
+    if (!confirm(message)) {
+        return;
+    }
+    
+    saveState();
+    
+    // Add generated actions to project
+    if (!project.usePaths) {
+        project.usePaths = [];
+    }
+    
+    // Filter out duplicates (by path)
+    const existingPaths = new Set(project.usePaths.map(p => p.layersInvolved.join('->')));
+    
+    let importedCount = 0;
+    generatedActions.forEach(action => {
+        const pathKey = action.layersInvolved.join('->');
+        if (!existingPaths.has(pathKey)) {
+            project.usePaths.push(action);
+            existingPaths.add(pathKey);
+            importedCount++;
+        }
+    });
+    
+    saveProject();
+    
+    // Show result
+    alert(`Imported ${importedCount} new action paths.\n\nTotal actions: ${project.usePaths.length}`);
+    
+    // Refresh actions view if visible
+    if (currentView === 'actions') {
+        renderActionsView();
+    }
+}
+
+/**
+ * Add import button to actions view header
+ * This function is called from renderActionsView
+ */
+function addImportConnectionsButton(header) {
+    const importBtn = document.createElement('button');
+    importBtn.textContent = '⚡ Import from Connections';
+    importBtn.style.cssText = `
+        background: #8b5cf6;
+        color: white;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 500;
+        transition: background 0.2s;
+        margin-left: 8px;
+    `;
+    importBtn.onmouseover = () => importBtn.style.background = '#7c3aed';
+    importBtn.onmouseout = () => importBtn.style.background = '#8b5cf6';
+    importBtn.onclick = () => importActionsFromConnections();
+    
+    return importBtn;
+}
